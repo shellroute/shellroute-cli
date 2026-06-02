@@ -1,0 +1,27 @@
+name: DCO
+on:
+  pull_request:
+
+jobs:
+  dco:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check DCO sign-off
+        run: |
+          BASE=${{ github.event.pull_request.base.sha }}
+          HEAD=${{ github.event.pull_request.head.sha }}
+          MISSING=$(git log --format='%H %s' ${BASE}..${HEAD} | while read hash msg; do
+            if ! git log -1 --format='%b' $hash | grep -qi 'Signed-off-by:'; then
+              echo "$hash $msg"
+            fi
+          done)
+          if [ -n "$MISSING" ]; then
+            echo "The following commits are missing DCO sign-off:"
+            echo "$MISSING"
+            echo ""
+            echo "Add sign-off with: git commit --amend -s"
+            exit 1
+          fi

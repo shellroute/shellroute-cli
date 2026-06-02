@@ -1,0 +1,83 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make lint
+      - run: make test
+      - run: make audit-public
+
+  goreleaser:
+    needs: gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: sigstore/cosign-installer@v3
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+
+  npm-publish:
+    needs: goreleaser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download release binaries
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          TAG=$GITHUB_REF_NAME
+          declare -A ARCHIVES=(
+            [darwin-arm64]="shellroute_${VERSION}_darwin_arm64_npm.tar.gz"
+            [darwin-x64]="shellroute_${VERSION}_darwin_amd64_npm.tar.gz"
+            [linux-arm64]="shellroute_${VERSION}_linux_arm64_npm.tar.gz"
+            [linux-x64]="shellroute_${VERSION}_linux_amd64_npm.tar.gz"
+          )
+          for PLATFORM in "${!ARCHIVES[@]}"; do
+            ARCHIVE="${ARCHIVES[$PLATFORM]}"
+            gh release download $TAG --pattern "$ARCHIVE" --dir /tmp
+            mkdir -p npm/cli-${PLATFORM}/bin
+            tar -xzf /tmp/$ARCHIVE -C npm/cli-${PLATFORM}/bin
+            chmod +x npm/cli-${PLATFORM}/bin/shellroute
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update versions and publish
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          for dir in npm/shellroute npm/cli-*; do
+            jq --arg v "$VERSION" '.version = $v' $dir/package.json > tmp.json && mv tmp.json $dir/package.json
+          done
+          for dir in npm/cli-*; do
+            cd $dir && npm publish --access public && cd -
+          done
+          cd npm/shellroute
+          jq --arg v "$VERSION" '.optionalDependencies |= with_entries(.value = $v)' package.json > tmp.json && mv tmp.json package.json
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

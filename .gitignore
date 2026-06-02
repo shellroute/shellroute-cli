@@ -1,0 +1,16 @@
+# Build artifacts (root binary only, not cmd/shellroute/ directory)
+/shellroute
+dist/
+*.test
+coverage.out
+
+# npm platform binaries (injected by CI, not committed)
+npm/cli-*/bin/
+
+# OS / editor
+.DS_Store
+.env*
+
+# Local release artifacts
+*.tar.gz
+*.zip

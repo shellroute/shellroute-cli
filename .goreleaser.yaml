@@ -1,0 +1,76 @@
+version: 2
+
+builds:
+  - id: direct
+    main: ./cmd/shellroute
+    binary: shellroute
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/shellroute/shellroute-cli/internal/cli.rawVersion={{.Version}}
+      - -X github.com/shellroute/shellroute-cli/internal/cli.installMethod=direct
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+
+  - id: npm
+    main: ./cmd/shellroute
+    binary: shellroute
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/shellroute/shellroute-cli/internal/cli.rawVersion={{.Version}}
+      - -X github.com/shellroute/shellroute-cli/internal/cli.installMethod=npm
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+
+  - id: brew
+    main: ./cmd/shellroute
+    binary: shellroute
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/shellroute/shellroute-cli/internal/cli.rawVersion={{.Version}}
+      - -X github.com/shellroute/shellroute-cli/internal/cli.installMethod=brew
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+
+archives:
+  - id: direct
+    builds: [direct]
+    name_template: "shellroute_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format: tar.gz
+    files: [LICENSE, NOTICE]
+
+  - id: npm
+    builds: [npm]
+    name_template: "shellroute_{{ .Version }}_{{ .Os }}_{{ .Arch }}_npm"
+    format: tar.gz
+    files: [LICENSE, NOTICE]
+
+  - id: brew
+    builds: [brew]
+    name_template: "shellroute_{{ .Version }}_{{ .Os }}_{{ .Arch }}_brew"
+    format: tar.gz
+    files: [LICENSE, NOTICE]
+
+checksum:
+  name_template: "checksums.txt"
+
+brews:
+  - ids: [brew]
+    name: shellroute
+    repository:
+      owner: shellroute
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://shellroute.com"
+    description: "Residential proxy CLI"
+    directory: Formula
+
+signs:
+  - cmd: cosign
+    args: ["sign-blob", "--yes", "--output-signature=${signature}", "${artifact}"]
+    artifacts: checksum
