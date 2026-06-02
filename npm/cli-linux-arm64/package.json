@@ -1,0 +1,9 @@
+{
+  "name": "@shellroute/cli-linux-arm64",
+  "version": "0.1.0",
+  "os": ["linux"],
+  "cpu": ["arm64"],
+  "license": "Apache-2.0",
+  "files": ["bin", "LICENSE", "NOTICE"],
+  "bin": { "shellroute": "bin/shellroute" }
+}
