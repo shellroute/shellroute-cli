@@ -402,6 +402,9 @@ func (s *Server) handleConnect(ctx context.Context, clientConn net.Conn, initial
 }
 
 // handleHTTP handles plain HTTP requests by forwarding to gateway.
+// No explicit body size limit: the relay meters all bytes (billing is correct)
+// and the gateway's meteredConn enforces the byte budget. The idle timeout
+// (60s) bounds slow-drip attacks.
 func (s *Server) handleHTTP(ctx context.Context, clientConn net.Conn, initialData []byte) {
 	if s.checkRouteState(clientConn) {
 		return
