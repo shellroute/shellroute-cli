@@ -1,8 +1,8 @@
-# ShellRoute CLI
+# shellroute CLI
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-Run terminal commands through country-specific residential or datacenter proxies. No VPN, no per-tool configuration.
+Run terminal commands through country-specific residential or datacenter proxies. No VPN, no per-tool configuration. Learn more at [shellroute.com](https://shellroute.com/).
 
 ## Install
 
@@ -83,14 +83,14 @@ Run all checks (lint, tests, audit, cross-compile): `./scripts/run-tests.sh`. Re
 ## How it works
 
 ```
-Your terminal -> ShellRoute CLI (local proxy) -> ShellRoute API -> Gateway -> Exit IP -> Internet
+Your terminal -> shellroute CLI (local proxy) -> shellroute API -> Gateway -> Exit IP -> Internet
 ```
 
 The CLI runs a local HTTP proxy on `127.0.0.1`. It sets `HTTP_PROXY`/`HTTPS_PROXY` so tools like curl, Python requests, and Node fetch route through it automatically. Traffic exits through residential or datacenter IPs in 120+ countries.
 
 ## Important
 
-ShellRoute CLI is open source. It connects to the ShellRoute service, which requires a paid account. See [shellroute.com](https://shellroute.com) for pricing and [acceptable use policy](https://shellroute.com/acceptable-use).
+The shellroute CLI is open source. It connects to the shellroute service, which requires a paid account. See [shellroute.com](https://shellroute.com/) for pricing and [acceptable use policy](https://shellroute.com/acceptable-use).
 
 ## Privacy
 
@@ -107,4 +107,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Apache 2.0. See [LICENSE](LICENSE).
 
-"ShellRoute" is a trademark. This license covers the code, not the brand. See [NOTICE](NOTICE).
+"shellroute" is a trademark. This license covers the code, not the brand. See [NOTICE](NOTICE).
