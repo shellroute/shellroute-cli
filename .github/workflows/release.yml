@@ -8,7 +8,7 @@ permissions:
   id-token: write
 
 jobs:
-  gate:
+  release-gate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,7 +20,7 @@ jobs:
       - run: make audit-public
 
   goreleaser:
-    needs: gate
+    needs: release-gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
