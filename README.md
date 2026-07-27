@@ -86,7 +86,9 @@ Run all checks (lint, tests, audit, cross-compile): `./scripts/run-tests.sh`. Re
 Your terminal -> shellroute CLI (local proxy) -> shellroute API -> Gateway -> Exit IP -> Internet
 ```
 
-The CLI runs a local HTTP proxy on `127.0.0.1`. It sets `HTTP_PROXY`/`HTTPS_PROXY` so tools like curl, Python requests, and Node fetch route through it automatically. Traffic exits through residential or datacenter IPs in 120+ countries.
+The CLI runs a local HTTP proxy on `127.0.0.1` and sets `HTTP_PROXY`/`HTTPS_PROXY` for the child process. Proxy-aware tools such as curl, Python Requests, and HTTPX inherit the route. Some clients need explicit configuration. See the [compatibility matrix](docs/compatibility.md) for tested versions and conditions.
+
+Traffic exits through residential or datacenter IPs in 120+ countries.
 
 ## Important
 
