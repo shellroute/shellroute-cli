@@ -136,12 +136,19 @@ func runRun(cmd *cobra.Command, args []string) error {
 	childCmd.Stdout = os.Stdout
 	childCmd.Stderr = os.Stderr
 	childCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // own process group
-	childCmd.Env = append(os.Environ(),
+	env := append(os.Environ(),
 		"HTTP_PROXY="+sess.ProxyURL(),
 		"HTTPS_PROXY="+sess.ProxyURL(),
 		"http_proxy="+sess.ProxyURL(),
 		"https_proxy="+sess.ProxyURL(),
 	)
+	// Enable Node.js built-in proxy support: fetch (Node 24.0+),
+	// http/https (Node 24.5+), backported to 22.21+.
+	// Node 20 and older ignore this variable. Only set if user hasn't configured it.
+	if os.Getenv("NODE_USE_ENV_PROXY") == "" {
+		env = append(env, "NODE_USE_ENV_PROXY=1")
+	}
+	childCmd.Env = env
 
 	if err := childCmd.Start(); err != nil {
 		sess.Stop()

@@ -6,6 +6,7 @@ import (
 )
 
 func writeShellFunctions(f *os.File) {
+	writeCleanupHelper(f)
 	writeSSHProxyHelper(f)
 	writeConnectFunc(f)
 	writeDisconnectFunc(f)
@@ -14,6 +15,22 @@ func writeShellFunctions(f *os.File) {
 	writeHelpFunc(f)
 	writeSSHFunc(f)
 	writeSettingsCommands(f)
+}
+
+func writeCleanupHelper(f *os.File) {
+	// Shared cleanup for all session-end paths.
+	// Unsets NODE_USE_ENV_PROXY only if shellroute owns it AND value is still 1.
+	f.WriteString(`
+_sr_cleanup_session() {
+  unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
+  unset SHELLROUTE_SESSION_ID SHELLROUTE_COUNTRY SHELLROUTE_EXIT_IP SHELLROUTE_PORT SHELLROUTE_COUNTRY_NAME SHELLROUTE_CITY
+  if [ "$_SR_OWNS_NODE_PROXY" = "1" ] && [ "$NODE_USE_ENV_PROXY" = "1" ]; then
+    unset NODE_USE_ENV_PROXY
+  fi
+  unset _SR_OWNS_NODE_PROXY
+  unset _SR_KILLSWITCH_SHOWN _SR_HEALTH
+}
+`)
 }
 
 func writeSSHProxyHelper(f *os.File) {
@@ -95,8 +112,7 @@ func writeConnectFunc(f *os.File) {
   if echo "$result" | grep -q '^DISCONNECTED='; then
     local err=$(echo "$result" | grep '^ERROR ' | sed 's/^ERROR //')
     echo "  ✗ ${err}"
-    unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
-    unset SHELLROUTE_SESSION_ID SHELLROUTE_COUNTRY SHELLROUTE_EXIT_IP SHELLROUTE_PORT SHELLROUTE_COUNTRY_NAME SHELLROUTE_CITY
+    _sr_cleanup_session
     return 1
   fi
   if [ $curl_rc -ne 0 ] || echo "$result" | grep -q "^ERROR "; then
@@ -131,9 +147,7 @@ func writeDisconnectFunc(f *os.File) {
     echo "  ✗ ${err}"
     return 1
   fi
-  unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
-  unset SHELLROUTE_SESSION_ID SHELLROUTE_COUNTRY SHELLROUTE_EXIT_IP SHELLROUTE_PORT SHELLROUTE_COUNTRY_NAME SHELLROUTE_CITY
-  unset _SR_KILLSWITCH_SHOWN _SR_HEALTH
+  _sr_cleanup_session
   echo "$result"
   echo ""
 }
@@ -160,8 +174,7 @@ func writeRotateFunc(f *os.File) {
   if echo "$result" | grep -q '^DISCONNECTED='; then
     local err=$(echo "$result" | grep '^ERROR ' | sed 's/^ERROR //')
     echo "  ✗ ${err}"
-    unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
-    unset SHELLROUTE_SESSION_ID SHELLROUTE_COUNTRY SHELLROUTE_EXIT_IP SHELLROUTE_PORT SHELLROUTE_COUNTRY_NAME SHELLROUTE_CITY
+    _sr_cleanup_session
     return 1
   fi
   if [ $curl_rc -ne 0 ] || echo "$result" | head -1 | grep -q "^ERROR "; then

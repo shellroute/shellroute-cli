@@ -386,6 +386,10 @@ func (c *Controller) httpConnect(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "export https_proxy=%s\n", proxyURL)
 	fmt.Fprintf(w, "export NO_PROXY=localhost,127.0.0.1\n")
 	fmt.Fprintf(w, "export no_proxy=localhost,127.0.0.1\n")
+	// Enable Node.js built-in fetch/http proxy support (Node 24.0+ fetch,
+	// 24.5+ http/https, backported to 22.21+; older versions ignore it).
+	// Only set if user hasn't configured it; track ownership for cleanup.
+	fmt.Fprintln(w, `if [ -z "$NODE_USE_ENV_PROXY" ]; then export NODE_USE_ENV_PROXY=1; _SR_OWNS_NODE_PROXY=1; fi`)
 	fmt.Fprintf(w, "export SHELLROUTE_SESSION_ID=%s\n", sess.ID)
 	fmt.Fprintf(w, "export SHELLROUTE_COUNTRY=%s\n", sess.Country)
 	fmt.Fprintf(w, "export SHELLROUTE_COUNTRY_NAME=%s\n", shellQuote(c.countryName(sess.Country)))

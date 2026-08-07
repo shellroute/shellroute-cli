@@ -32,8 +32,8 @@ Tested 2026-07-27 on macOS 26.4 (darwin/arm64) with shellroute 0.1.0. Each teste
 | Python urllib | 3.9.6 | automatic | `shellroute run US -- python3 -c "import urllib.request; print(urllib.request.urlopen('https://ipinfo.io/json').read().decode())"` | Default handlers read proxy env vars. |
 | aiohttp (default) | 3.13.5 | not transparent | Tested internally: `aiohttp.ClientSession()` without `trust_env` | Did not use proxy env vars. Returned direct IP. |
 | aiohttp (`trust_env=True`) | 3.13.5 | explicit configuration | Tested internally: `aiohttp.ClientSession(trust_env=True)` | Requires `trust_env=True` or explicit proxy. |
-| Node fetch (default) | v25.8.2 | not transparent | `shellroute run US -- node -e "fetch('https://ipinfo.io/json').then(r=>r.json()).then(d=>console.log(JSON.stringify(d)))"` | Did not use proxy env vars. Returned direct IP. |
-| Node fetch (env opt-in) | v25.8.2 | explicit configuration | `shellroute run US -- env NODE_USE_ENV_PROXY=1 node -e "fetch('https://ipinfo.io/json').then(r=>r.json()).then(console.log)"` | Requires `NODE_USE_ENV_PROXY=1` or `--use-env-proxy`. |
+| Node fetch | v25.8.2 | automatic | `shellroute run US -- node -e "fetch('https://ipinfo.io/json').then(r=>r.json()).then(console.log)"` | Shellroute sets `NODE_USE_ENV_PROXY=1` automatically. Supported on Node 24.0+ (fetch) and 22.21+ (backport). Node 20 and older ignore it (fetch goes direct). Node 22 may emit an experimental warning. Opt out: `NODE_USE_ENV_PROXY=0`. |
+| Node http/https | v25.8.2 | automatic | `shellroute run US -- node -e "const https=require('https'); https.get('https://ipinfo.io/json', r=>{let d=''; r.on('data',c=>d+=c); r.on('end',()=>console.log(d))})"` | Supported on Node 24.5+ and 22.21+ (backport) via default global agents. Custom agents can bypass proxy. |
 | Go `http.Client` (default) | go1.26.2 | automatic | Tested internally: `http.Get(url)` with default transport | Default transport reads proxy env vars. |
 | Go `http.Client` (custom) | go1.26.2 | not transparent | Tested internally: `Transport{Proxy: nil}` | Custom transport bypassed proxy. Returned direct IP. |
 | Playwright | 1.60.0 | explicit configuration | Tested internally: `npx playwright test` with proxy in config | Requires `proxy: { server: process.env.HTTP_PROXY }` in playwright.config.ts. |
@@ -62,6 +62,15 @@ Each tested combination runs through this procedure:
    - The session shuts down cleanly.
 4. Negative tests (e.g., `trust_env=False`, Node fetch default) verify the request bypasses the proxy without publishing the direct IP.
 5. Provider failures are retried. A client is not labeled incompatible because of an upstream failure.
+
+## Node library caveats
+
+Shellroute sets `NODE_USE_ENV_PROXY=1` which makes Node's global HTTP agents read proxy env vars. This affects all libraries using the default agents:
+
+- **Axios <=1.18.0**: can double-proxy because both Axios and Node process `HTTP_PROXY`/`HTTPS_PROXY`. Workaround: set `NODE_USE_ENV_PROXY=0` so only Axios handles the proxy.
+- **Axios >=1.18.1**: defers env proxy handling to Node. Works correctly with shellroute.
+- **Got**: default HTTP/1.1 path uses Node's global agent and routes correctly. Custom agents and HTTP/2 mode are not guaranteed to proxy.
+- Not all Node HTTP libraries automatically work. Libraries that create their own sockets or agents may bypass the proxy.
 
 ## Limitations
 
