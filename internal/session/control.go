@@ -385,28 +385,12 @@ func (c *Controller) httpConnect(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "export http_proxy=%s\n", proxyURL)
 	fmt.Fprintf(w, "export https_proxy=%s\n", proxyURL)
 	// Union NO_PROXY + no_proxy + loopback, assign identical result to both.
-	// Node gives lowercase precedence; both must contain the full set.
-	fmt.Fprintln(w, `_sr_union_no_proxy() {
-  local IFS=,; local seen="" result=""
-  for src in "$NO_PROXY" "$no_proxy"; do
-    for h in $src; do
-      h=$(echo "$h" | xargs)
-      [ -z "$h" ] && continue
-      echo ",$seen," | grep -qF ",$h," && continue
-      seen="$seen,$h"; result="${result:+$result,}$h"
-    done
-  done
-  for h in localhost 127.0.0.1 ::1; do
-    echo ",$seen," | grep -qF ",$h," && continue
-    result="${result:+$result,}$h"
-  done
-  echo "$result"
-}`)
+	w.Write([]byte(NoProxyUnionScript + "\n"))
 	fmt.Fprintln(w, `_sr_np=$(_sr_union_no_proxy); export NO_PROXY="$_sr_np"; export no_proxy="$_sr_np"; unset _sr_np`)
 	// Enable Node.js built-in fetch/http proxy support (Node 24.0+ fetch,
 	// 24.5+ http/https, backported to 22.21+; older versions ignore it).
 	// Only set if user hasn't configured it; track ownership for cleanup.
-	fmt.Fprintln(w, `if [ -z "$NODE_USE_ENV_PROXY" ]; then export NODE_USE_ENV_PROXY=1; _SR_OWNS_NODE_PROXY=1; fi`)
+	fmt.Fprintln(w, NodeProxyOwnershipScript)
 	fmt.Fprintf(w, "export SHELLROUTE_SESSION_ID=%s\n", sess.ID)
 	fmt.Fprintf(w, "export SHELLROUTE_COUNTRY=%s\n", sess.Country)
 	fmt.Fprintf(w, "export SHELLROUTE_COUNTRY_NAME=%s\n", shellQuote(c.countryName(sess.Country)))

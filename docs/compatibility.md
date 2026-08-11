@@ -1,8 +1,8 @@
 # Compatibility Matrix
 
-Last tested: 2026-07-27
+Last tested: 2026-08-11
 
-Shellroute version: 0.1.0
+Shellroute version: unreleased (post-0.1.0, includes auto NODE_USE_ENV_PROXY)
 Platform: macOS 26.4 (darwin/arm64)
 
 ## How shellroute routes traffic
@@ -32,9 +32,9 @@ Tested 2026-07-27 on macOS 26.4 (darwin/arm64) with shellroute 0.1.0. Each teste
 | Python urllib | 3.9.6 | automatic | `shellroute run US -- python3 -c "import urllib.request; print(urllib.request.urlopen('https://ipinfo.io/json').read().decode())"` | Default handlers read proxy env vars. |
 | aiohttp (default) | 3.13.5 | not transparent | Tested internally: `aiohttp.ClientSession()` without `trust_env` | Did not use proxy env vars. Returned direct IP. |
 | aiohttp (`trust_env=True`) | 3.13.5 | explicit configuration | Tested internally: `aiohttp.ClientSession(trust_env=True)` | Requires `trust_env=True` or explicit proxy. |
-| Node fetch | v25.8.2 | automatic | `shellroute run US -- node -e "fetch('https://ipinfo.io/json').then(r=>r.json()).then(console.log)"` | Shellroute sets `NODE_USE_ENV_PROXY=1` automatically. Supported: Node 24.0+ and 22.21+ (backport). Not supported: Node 20, 21, 23, and earlier. Node 22 before 22.21 may emit an experimental warning. Opt out: `NODE_USE_ENV_PROXY=0`. |
+| Node fetch | v25.8.2 | automatic | `shellroute run US -- node -e "fetch('https://ipinfo.io/json').then(r=>r.json()).then(console.log)"` | Shellroute sets `NODE_USE_ENV_PROXY=1` automatically. Supported: Node 24.0+ and 22.21+. Not supported: Node 20, 21, 22.0–22.20, 23. Opt out: `NODE_USE_ENV_PROXY=0`. |
 | Node fetch (`NODE_USE_ENV_PROXY=0`) | v25.8.2 | not transparent | `NODE_USE_ENV_PROXY=0 shellroute run US -- node -e "fetch('https://ipinfo.io/json').then(r=>r.json()).then(console.log)"` | User opt-out. Fetch goes direct, returns direct IP. |
-| Node http/https | v25.8.2 | automatic | `shellroute run US -- node -e "const https=require('https'); https.get('https://ipinfo.io/json', r=>{let d=''; r.on('data',c=>d+=c); r.on('end',()=>console.log(d))})"` | Supported: Node 24.5+ and 22.21+ (backport). Not supported: Node 20, 21, 23, and earlier. Uses default global agents; custom agents can bypass. |
+| Node http/https | v25.8.2 | automatic | `shellroute run US -- node -e "const https=require('https'); https.get('https://ipinfo.io/json', r=>{let d=''; r.on('data',c=>d+=c); r.on('end',()=>console.log(d))})"` | Supported: Node 24.5+ and 22.21+. Not supported: Node 20, 21, 22.0–22.20, 23, 24.0–24.4. Uses default global agents; custom agents can bypass. |
 | Go `http.Client` (default) | go1.26.2 | automatic | Tested internally: `http.Get(url)` with default transport | Default transport reads proxy env vars. |
 | Go `http.Client` (custom) | go1.26.2 | not transparent | Tested internally: `Transport{Proxy: nil}` | Custom transport bypassed proxy. Returned direct IP. |
 | Playwright | 1.60.0 | explicit configuration | Tested internally: `npx playwright test` with proxy in config | Requires `proxy: { server: process.env.HTTP_PROXY }` in playwright.config.ts. |
@@ -61,7 +61,7 @@ Each tested combination runs through this procedure:
    - The observed public exit IP differs from the redacted direct control.
    - The endpoint reports the selected country.
    - The session shuts down cleanly.
-4. Negative tests (e.g., `trust_env=False`, Node fetch default) verify the request bypasses the proxy without publishing the direct IP.
+4. Negative tests (e.g., `trust_env=False`, `NODE_USE_ENV_PROXY=0`) verify the request bypasses the proxy without publishing the direct IP.
 5. Provider failures are retried. A client is not labeled incompatible because of an upstream failure.
 
 ## Node library caveats
