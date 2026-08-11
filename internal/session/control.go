@@ -384,10 +384,25 @@ func (c *Controller) httpConnect(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "export HTTPS_PROXY=%s\n", proxyURL)
 	fmt.Fprintf(w, "export http_proxy=%s\n", proxyURL)
 	fmt.Fprintf(w, "export https_proxy=%s\n", proxyURL)
-	// Merge loopback into NO_PROXY, preserving user entries
-	fmt.Fprintln(w, `_sr_merge_no_proxy() { local v="$1"; for h in localhost 127.0.0.1 ::1; do echo ",$v," | grep -qF ",$h," || v="$v,$h"; done; echo "$v"; }`)
-	fmt.Fprintln(w, `export NO_PROXY=$(_sr_merge_no_proxy "${NO_PROXY:-localhost,127.0.0.1,::1}")`)
-	fmt.Fprintln(w, `export no_proxy=$(_sr_merge_no_proxy "${no_proxy:-localhost,127.0.0.1,::1}")`)
+	// Union NO_PROXY + no_proxy + loopback, assign identical result to both.
+	// Node gives lowercase precedence; both must contain the full set.
+	fmt.Fprintln(w, `_sr_union_no_proxy() {
+  local IFS=,; local seen="" result=""
+  for src in "$NO_PROXY" "$no_proxy"; do
+    for h in $src; do
+      h=$(echo "$h" | xargs)
+      [ -z "$h" ] && continue
+      echo ",$seen," | grep -qF ",$h," && continue
+      seen="$seen,$h"; result="${result:+$result,}$h"
+    done
+  done
+  for h in localhost 127.0.0.1 ::1; do
+    echo ",$seen," | grep -qF ",$h," && continue
+    result="${result:+$result,}$h"
+  done
+  echo "$result"
+}`)
+	fmt.Fprintln(w, `_sr_np=$(_sr_union_no_proxy); export NO_PROXY="$_sr_np"; export no_proxy="$_sr_np"; unset _sr_np`)
 	// Enable Node.js built-in fetch/http proxy support (Node 24.0+ fetch,
 	// 24.5+ http/https, backported to 22.21+; older versions ignore it).
 	// Only set if user hasn't configured it; track ownership for cleanup.

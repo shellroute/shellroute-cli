@@ -210,11 +210,10 @@ func buildProxyEnv(base []string, proxyURL string) []string {
 		"https_proxy="+proxyURL,
 	)
 
-	// Merge NO_PROXY: keep user entries, ensure loopback is included
-	env = append(env,
-		"NO_PROXY="+mergeNoProxy(envLookup(base, "NO_PROXY")),
-		"no_proxy="+mergeNoProxy(envLookup(base, "no_proxy")),
-	)
+	// Union NO_PROXY + no_proxy + loopback, assign identical result to both.
+	// Node gives lowercase precedence; merging both prevents lost entries.
+	noProxy := unionNoProxy(envLookup(base, "NO_PROXY"), envLookup(base, "no_proxy"))
+	env = append(env, "NO_PROXY="+noProxy, "no_proxy="+noProxy)
 
 	// Node.js proxy support (fetch Node 24.0+, http/https 24.5+, backported to 22.21+).
 	// Older versions ignore it. Only set if user hasn't configured it.
@@ -225,26 +224,30 @@ func buildProxyEnv(base []string, proxyURL string) []string {
 	return env
 }
 
-// mergeNoProxy ensures loopback entries are present, preserving user entries.
-func mergeNoProxy(existing string) string {
-	if existing == "" {
-		return defaultNoProxy
-	}
-	required := []string{"localhost", "127.0.0.1", "::1"}
-	result := existing
-	for _, r := range required {
-		found := false
-		for _, part := range strings.Split(existing, ",") {
-			if strings.TrimSpace(part) == r {
-				found = true
-				break
+// unionNoProxy merges uppercase NO_PROXY, lowercase no_proxy, and required
+// loopback entries into one deduplicated list. Node gives lowercase precedence,
+// so both variables must contain the same complete set.
+func unionNoProxy(upper, lower string) string {
+	seen := make(map[string]bool)
+	var parts []string
+	for _, src := range []string{upper, lower} {
+		for _, p := range strings.Split(src, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" && !seen[p] {
+				seen[p] = true
+				parts = append(parts, p)
 			}
 		}
-		if !found {
-			result += "," + r
+	}
+	for _, required := range []string{"localhost", "127.0.0.1", "::1"} {
+		if !seen[required] {
+			parts = append(parts, required)
 		}
 	}
-	return result
+	if len(parts) == 0 {
+		return defaultNoProxy
+	}
+	return strings.Join(parts, ",")
 }
 
 // envLookup finds the last value for a key in an env slice (matches exec.Command behavior).

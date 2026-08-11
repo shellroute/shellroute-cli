@@ -98,29 +98,78 @@ func TestBuildProxyEnv_ChildSeesZero(t *testing.T) {
 	}
 }
 
-func TestMergeNoProxy_Empty(t *testing.T) {
-	got := mergeNoProxy("")
+func TestUnionNoProxy_BothEmpty(t *testing.T) {
+	got := unionNoProxy("", "")
 	if got != defaultNoProxy {
-		t.Errorf("mergeNoProxy('') = %q, want %q", got, defaultNoProxy)
+		t.Errorf("unionNoProxy('','') = %q, want %q", got, defaultNoProxy)
 	}
 }
 
-func TestMergeNoProxy_AlreadyComplete(t *testing.T) {
-	got := mergeNoProxy("localhost,127.0.0.1,::1")
-	if got != "localhost,127.0.0.1,::1" {
-		t.Errorf("mergeNoProxy = %q, should not add duplicates", got)
-	}
-}
-
-func TestMergeNoProxy_MergesUserEntries(t *testing.T) {
-	got := mergeNoProxy("myapp.local")
-	if !strings.Contains(got, "myapp.local") {
-		t.Errorf("lost user entry: %q", got)
-	}
+func TestUnionNoProxy_AlreadyComplete(t *testing.T) {
+	got := unionNoProxy("localhost,127.0.0.1,::1", "")
 	for _, h := range []string{"localhost", "127.0.0.1", "::1"} {
 		if !strings.Contains(got, h) {
 			t.Errorf("missing %s in %q", h, got)
 		}
+	}
+	// No duplicates
+	if strings.Count(got, "localhost") != 1 {
+		t.Errorf("duplicate localhost in %q", got)
+	}
+}
+
+func TestUnionNoProxy_UppercaseOnly(t *testing.T) {
+	// User only set NO_PROXY (uppercase), no_proxy is empty
+	base := setEnv(filterEnv(os.Environ(), "NO_PROXY", "no_proxy"), "NO_PROXY", "corp.internal")
+	env := buildProxyEnv(base, "http://127.0.0.1:41900")
+	np := envLookup(env, "no_proxy")
+	if !strings.Contains(np, "corp.internal") {
+		t.Errorf("no_proxy=%q missing corp.internal from NO_PROXY", np)
+	}
+	if !strings.Contains(np, "127.0.0.1") {
+		t.Errorf("no_proxy=%q missing loopback", np)
+	}
+}
+
+func TestUnionNoProxy_LowercaseOnly(t *testing.T) {
+	// User only set no_proxy (lowercase), NO_PROXY is empty
+	base := setEnv(filterEnv(os.Environ(), "NO_PROXY", "no_proxy"), "no_proxy", "corp.internal")
+	env := buildProxyEnv(base, "http://127.0.0.1:41900")
+	np := envLookup(env, "NO_PROXY")
+	if !strings.Contains(np, "corp.internal") {
+		t.Errorf("NO_PROXY=%q missing corp.internal from no_proxy", np)
+	}
+	if !strings.Contains(np, "127.0.0.1") {
+		t.Errorf("NO_PROXY=%q missing loopback", np)
+	}
+}
+
+func TestUnionNoProxy_BothSet(t *testing.T) {
+	// Both set with different entries
+	base := setEnv(
+		setEnv(filterEnv(os.Environ(), "NO_PROXY", "no_proxy"), "NO_PROXY", "upper.host"),
+		"no_proxy", "lower.host",
+	)
+	env := buildProxyEnv(base, "http://127.0.0.1:41900")
+	np := envLookup(env, "NO_PROXY")
+	for _, host := range []string{"upper.host", "lower.host", "localhost", "127.0.0.1", "::1"} {
+		if !strings.Contains(np, host) {
+			t.Errorf("NO_PROXY=%q missing %s", np, host)
+		}
+	}
+	// Both vars should be identical
+	if envLookup(env, "NO_PROXY") != envLookup(env, "no_proxy") {
+		t.Error("NO_PROXY and no_proxy should be identical")
+	}
+}
+
+func TestUnionNoProxy_Deduplicates(t *testing.T) {
+	got := unionNoProxy("localhost,myhost", "localhost,myhost")
+	if strings.Count(got, "localhost") != 1 {
+		t.Errorf("duplicate localhost in %q", got)
+	}
+	if strings.Count(got, "myhost") != 1 {
+		t.Errorf("duplicate myhost in %q", got)
 	}
 }
 
