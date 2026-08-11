@@ -384,8 +384,10 @@ func (c *Controller) httpConnect(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "export HTTPS_PROXY=%s\n", proxyURL)
 	fmt.Fprintf(w, "export http_proxy=%s\n", proxyURL)
 	fmt.Fprintf(w, "export https_proxy=%s\n", proxyURL)
-	fmt.Fprintf(w, "export NO_PROXY=localhost,127.0.0.1\n")
-	fmt.Fprintf(w, "export no_proxy=localhost,127.0.0.1\n")
+	// Merge loopback into NO_PROXY, preserving user entries
+	fmt.Fprintln(w, `_sr_merge_no_proxy() { local v="$1"; for h in localhost 127.0.0.1 ::1; do echo ",$v," | grep -qF ",$h," || v="$v,$h"; done; echo "$v"; }`)
+	fmt.Fprintln(w, `export NO_PROXY=$(_sr_merge_no_proxy "${NO_PROXY:-localhost,127.0.0.1,::1}")`)
+	fmt.Fprintln(w, `export no_proxy=$(_sr_merge_no_proxy "${no_proxy:-localhost,127.0.0.1,::1}")`)
 	// Enable Node.js built-in fetch/http proxy support (Node 24.0+ fetch,
 	// 24.5+ http/https, backported to 22.21+; older versions ignore it).
 	// Only set if user hasn't configured it; track ownership for cleanup.

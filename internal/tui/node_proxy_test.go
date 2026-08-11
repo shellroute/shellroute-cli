@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-// Tests for NODE_USE_ENV_PROXY ownership in interactive mode shell functions.
-// We write the shell functions to a temp file and eval them in bash.
+// Tests for NODE_USE_ENV_PROXY ownership in interactive mode.
+// Uses the actual writeCleanupHelper and writeConnectFunc output.
 
-func writeTempShell(t *testing.T) string {
+func writeShellFile(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "shell.sh")
@@ -19,128 +19,129 @@ func writeTempShell(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Write the actual production cleanup helper
 	writeCleanupHelper(f)
+	// Write a minimal connect simulator that evals the controller output
+	writeConnectFunc(f)
+	writeDisconnectFunc(f)
 	f.Close()
 	return path
 }
 
-func runBash(t *testing.T, script string) string {
+func bash(t *testing.T, script string) string {
 	t.Helper()
 	cmd := exec.Command("bash", "-c", script)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("bash: %v\noutput: %s", err, out)
+		t.Fatalf("bash failed: %v\nscript: %s\noutput: %s", err, script, out)
 	}
 	return strings.TrimSpace(string(out))
 }
 
+func bashAllowFail(t *testing.T, script string) string {
+	t.Helper()
+	cmd := exec.Command("bash", "-c", script)
+	out, _ := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out))
+}
+
+// --- Cleanup helper tests (production _sr_cleanup_session) ---
+
 func TestCleanup_OwnsAndRemoves(t *testing.T) {
-	sh := writeTempShell(t)
-	// Shellroute owns NODE_USE_ENV_PROXY (set marker + value=1)
-	out := runBash(t, `
-		source `+sh+`
+	sh := writeShellFile(t)
+	out := bash(t, `source `+sh+`
 		export NODE_USE_ENV_PROXY=1
 		_SR_OWNS_NODE_PROXY=1
 		_sr_cleanup_session
-		echo "${NODE_USE_ENV_PROXY:-unset}"
+		echo "${NODE_USE_ENV_PROXY:-UNSET}"
 	`)
-	if out != "unset" {
-		t.Errorf("after cleanup, NODE_USE_ENV_PROXY=%q, want unset", out)
+	if out != "UNSET" {
+		t.Errorf("NODE_USE_ENV_PROXY=%q, want UNSET", out)
 	}
 }
 
 func TestCleanup_PreservesUserZero(t *testing.T) {
-	sh := writeTempShell(t)
-	// User set NODE_USE_ENV_PROXY=0 before connect — no marker
-	out := runBash(t, `
-		source `+sh+`
+	sh := writeShellFile(t)
+	out := bash(t, `source `+sh+`
 		export NODE_USE_ENV_PROXY=0
 		_sr_cleanup_session
 		echo "$NODE_USE_ENV_PROXY"
 	`)
 	if out != "0" {
-		t.Errorf("after cleanup, NODE_USE_ENV_PROXY=%q, want 0 (user value preserved)", out)
+		t.Errorf("NODE_USE_ENV_PROXY=%q, want 0 (user preserved)", out)
 	}
 }
 
 func TestCleanup_PreservesUserOne(t *testing.T) {
-	sh := writeTempShell(t)
-	// User set NODE_USE_ENV_PROXY=1 before connect — no marker
-	out := runBash(t, `
-		source `+sh+`
+	sh := writeShellFile(t)
+	// User set 1 before connect — no ownership marker
+	out := bash(t, `source `+sh+`
 		export NODE_USE_ENV_PROXY=1
 		_sr_cleanup_session
 		echo "$NODE_USE_ENV_PROXY"
 	`)
 	if out != "1" {
-		t.Errorf("after cleanup, NODE_USE_ENV_PROXY=%q, want 1 (user value preserved)", out)
+		t.Errorf("NODE_USE_ENV_PROXY=%q, want 1 (user preserved)", out)
 	}
 }
 
-func TestCleanup_UserChangedOwnedValue(t *testing.T) {
-	sh := writeTempShell(t)
-	// Shellroute set 1 with marker, then user changed to 0
-	out := runBash(t, `
-		source `+sh+`
-		export NODE_USE_ENV_PROXY=0
+func TestCleanup_UserChangedOwnedToZero(t *testing.T) {
+	sh := writeShellFile(t)
+	out := bash(t, `source `+sh+`
 		_SR_OWNS_NODE_PROXY=1
+		export NODE_USE_ENV_PROXY=0
 		_sr_cleanup_session
 		echo "$NODE_USE_ENV_PROXY"
 	`)
 	if out != "0" {
-		t.Errorf("after cleanup, NODE_USE_ENV_PROXY=%q, want 0 (user override preserved)", out)
+		t.Errorf("NODE_USE_ENV_PROXY=%q, want 0 (user override survives)", out)
 	}
 }
 
-func TestCleanup_MarkerCleared(t *testing.T) {
-	sh := writeTempShell(t)
-	out := runBash(t, `
-		source `+sh+`
-		export NODE_USE_ENV_PROXY=1
+func TestCleanup_MarkerAlwaysCleared(t *testing.T) {
+	sh := writeShellFile(t)
+	out := bash(t, `source `+sh+`
 		_SR_OWNS_NODE_PROXY=1
+		export NODE_USE_ENV_PROXY=1
 		_sr_cleanup_session
-		echo "${_SR_OWNS_NODE_PROXY:-unset}"
+		echo "${_SR_OWNS_NODE_PROXY:-UNSET}"
 	`)
-	if out != "unset" {
-		t.Errorf("after cleanup, _SR_OWNS_NODE_PROXY=%q, want unset", out)
+	if out != "UNSET" {
+		t.Errorf("_SR_OWNS_NODE_PROXY=%q, want UNSET", out)
 	}
 }
 
 func TestCleanup_ProxyVarsCleared(t *testing.T) {
-	sh := writeTempShell(t)
-	out := runBash(t, `
-		source `+sh+`
+	sh := writeShellFile(t)
+	out := bash(t, `source `+sh+`
 		export HTTP_PROXY=http://127.0.0.1:41900
 		export SHELLROUTE_SESSION_ID=test
 		_sr_cleanup_session
-		echo "HTTP_PROXY=${HTTP_PROXY:-unset} SESSION=${SHELLROUTE_SESSION_ID:-unset}"
+		echo "HTTP_PROXY=${HTTP_PROXY:-UNSET} SESSION=${SHELLROUTE_SESSION_ID:-UNSET}"
 	`)
-	if out != "HTTP_PROXY=unset SESSION=unset" {
-		t.Errorf("after cleanup: %q, want both unset", out)
+	if out != "HTTP_PROXY=UNSET SESSION=UNSET" {
+		t.Errorf("cleanup: %q, want both UNSET", out)
 	}
 }
 
-func TestConnectOutput_SetsMarker(t *testing.T) {
-	// Test the connect output line from control.go
-	script := `if [ -z "$NODE_USE_ENV_PROXY" ]; then export NODE_USE_ENV_PROXY=1; _SR_OWNS_NODE_PROXY=1; fi`
-	out := runBash(t, `
-		unset NODE_USE_ENV_PROXY
-		`+script+`
-		echo "val=$NODE_USE_ENV_PROXY marker=$_SR_OWNS_NODE_PROXY"
-	`)
-	if out != "val=1 marker=1" {
-		t.Errorf("connect output: %q, want val=1 marker=1", out)
+// --- Disconnect calls cleanup ---
+
+func TestDisconnect_CallsCleanup(t *testing.T) {
+	sh := writeShellFile(t)
+	// /disconnect calls _sr_cleanup_session. Since we can't call the real
+	// controller, test that the disconnect function body contains the call.
+	out := bash(t, `source `+sh+`; type /disconnect`)
+	if !strings.Contains(out, "_sr_cleanup_session") {
+		t.Error("/disconnect does not call _sr_cleanup_session")
 	}
 }
 
-func TestConnectOutput_SkipsWhenPreset(t *testing.T) {
-	script := `if [ -z "$NODE_USE_ENV_PROXY" ]; then export NODE_USE_ENV_PROXY=1; _SR_OWNS_NODE_PROXY=1; fi`
-	out := runBash(t, `
-		export NODE_USE_ENV_PROXY=0
-		`+script+`
-		echo "val=$NODE_USE_ENV_PROXY marker=${_SR_OWNS_NODE_PROXY:-unset}"
-	`)
-	if out != "val=0 marker=unset" {
-		t.Errorf("connect with preset: %q, want val=0 marker=unset", out)
+// --- DISCONNECTED path in /connect calls cleanup ---
+
+func TestConnectDisconnected_CallsCleanup(t *testing.T) {
+	sh := writeShellFile(t)
+	out := bash(t, `source `+sh+`; type /connect`)
+	if !strings.Contains(out, "_sr_cleanup_session") {
+		t.Error("/connect DISCONNECTED path does not call _sr_cleanup_session")
 	}
 }

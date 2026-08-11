@@ -68,7 +68,7 @@ Each tested combination runs through this procedure:
 Shellroute sets `NODE_USE_ENV_PROXY=1` which makes Node's global HTTP agents read proxy env vars. This affects all libraries using the default agents:
 
 - **Axios <=1.18.0**: can double-proxy because both Axios and Node process `HTTP_PROXY`/`HTTPS_PROXY`. Workaround: set `NODE_USE_ENV_PROXY=0` so only Axios handles the proxy.
-- **Axios >=1.18.1**: defers env proxy handling to Node. Works correctly with shellroute.
+- **Axios >=1.18.1**: defers env proxy handling to Node, avoiding the known double-proxy conflict. Not tested with shellroute.
 - **Got**: default HTTP/1.1 path uses Node's global agent and routes correctly. Custom agents and HTTP/2 mode are not guaranteed to proxy.
 - Not all Node HTTP libraries automatically work. Libraries that create their own sockets or agents may bypass the proxy.
 
