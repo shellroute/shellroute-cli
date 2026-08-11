@@ -20,7 +20,7 @@ A tool is routed only when it reads and uses these variables, or when it is expl
 
 ## Matrix
 
-Tested 2026-07-27 on macOS 26.4 (darwin/arm64) with shellroute 0.1.0. Each tested row verified: command exit code 0, exit IP differs from direct control, exit country = US, session ended cleanly.
+Tested on macOS 26.4 (darwin/arm64). Non-Node rows tested 2026-07-27 with shellroute 0.1.0. Node rows tested 2026-08-11 with unreleased build (post-0.1.0). Each tested row verified: command exit code 0, exit IP differs from direct control, exit country = US, session ended cleanly.
 
 | Client | Version | Outcome | Test command | Condition |
 |---|---|---|---|---|
