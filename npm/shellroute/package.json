@@ -3,9 +3,16 @@
   "version": "0.1.0",
   "description": "Residential proxy CLI",
   "license": "Apache-2.0",
-  "repository": "shellroute/shellroute-cli",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shellroute/shellroute-cli"
+  },
   "homepage": "https://shellroute.com",
-  "files": ["bin", "LICENSE", "NOTICE"],
+  "files": [
+    "bin",
+    "LICENSE",
+    "NOTICE"
+  ],
   "bin": {
     "shellroute": "bin/shellroute"
   },
