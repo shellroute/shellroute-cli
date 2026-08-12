@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -136,12 +137,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	childCmd.Stdout = os.Stdout
 	childCmd.Stderr = os.Stderr
 	childCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // own process group
-	childCmd.Env = append(os.Environ(),
-		"HTTP_PROXY="+sess.ProxyURL(),
-		"HTTPS_PROXY="+sess.ProxyURL(),
-		"http_proxy="+sess.ProxyURL(),
-		"https_proxy="+sess.ProxyURL(),
-	)
+	childCmd.Env = buildProxyEnv(os.Environ(), sess.ProxyURL())
 
 	if err := childCmd.Start(); err != nil {
 		sess.Stop()
@@ -200,6 +196,70 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return childErr
 	}
 	return nil
+}
+
+const defaultNoProxy = "localhost,127.0.0.1,::1"
+
+// buildProxyEnv creates the child environment with proxy vars, NO_PROXY bypass,
+// and NODE_USE_ENV_PROXY for Node.js support. Preserves user-set values.
+func buildProxyEnv(base []string, proxyURL string) []string {
+	env := append(base,
+		"HTTP_PROXY="+proxyURL,
+		"HTTPS_PROXY="+proxyURL,
+		"http_proxy="+proxyURL,
+		"https_proxy="+proxyURL,
+	)
+
+	// Union NO_PROXY + no_proxy + loopback, assign identical result to both.
+	// Node gives lowercase precedence; merging both prevents lost entries.
+	noProxy := unionNoProxy(envLookup(base, "NO_PROXY"), envLookup(base, "no_proxy"))
+	env = append(env, "NO_PROXY="+noProxy, "no_proxy="+noProxy)
+
+	// Node.js proxy support (fetch Node 24.0+, http/https 24.5+, backported to 22.21+).
+	// Older versions ignore it. Only set if user hasn't configured it.
+	if envLookup(base, "NODE_USE_ENV_PROXY") == "" {
+		env = append(env, "NODE_USE_ENV_PROXY=1")
+	}
+
+	return env
+}
+
+// unionNoProxy merges uppercase NO_PROXY, lowercase no_proxy, and required
+// loopback entries into one deduplicated list. Node gives lowercase precedence,
+// so both variables must contain the same complete set.
+func unionNoProxy(upper, lower string) string {
+	seen := make(map[string]bool)
+	var parts []string
+	for _, src := range []string{upper, lower} {
+		for _, p := range strings.Split(src, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" && !seen[p] {
+				seen[p] = true
+				parts = append(parts, p)
+			}
+		}
+	}
+	for _, required := range []string{"localhost", "127.0.0.1", "::1"} {
+		if !seen[required] {
+			parts = append(parts, required)
+		}
+	}
+	if len(parts) == 0 {
+		return defaultNoProxy
+	}
+	return strings.Join(parts, ",")
+}
+
+// envLookup finds the last value for a key in an env slice (matches exec.Command behavior).
+func envLookup(env []string, key string) string {
+	prefix := key + "="
+	val := ""
+	for _, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			val = e[len(prefix):]
+		}
+	}
+	return val
 }
 
 func isAlpha(s string) bool {
