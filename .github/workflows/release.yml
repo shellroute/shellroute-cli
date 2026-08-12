@@ -8,7 +8,7 @@ permissions:
   id-token: write
 
 jobs:
-  gate:
+  release-gate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -20,7 +20,7 @@ jobs:
       - run: make audit-public
 
   goreleaser:
-    needs: gate
+    needs: release-gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -40,11 +40,14 @@ jobs:
   npm-publish:
     needs: goreleaser
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # OIDC for npm trusted publishing
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           registry-url: "https://registry.npmjs.org"
 
       - name: Download release binaries
@@ -79,5 +82,3 @@ jobs:
           cd npm/shellroute
           jq --arg v "$VERSION" '.optionalDependencies |= with_entries(.value = $v)' package.json > tmp.json && mv tmp.json package.json
           npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
