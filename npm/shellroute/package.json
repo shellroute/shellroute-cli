@@ -1,7 +1,7 @@
 {
   "name": "shellroute",
   "version": "0.1.0",
-  "description": "Residential proxy CLI",
+  "description": "A proxied shell for terminal workflows. Open a session, connect a route, and run commands normally.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -21,5 +21,17 @@
     "@shellroute/cli-darwin-x64": "0.1.0",
     "@shellroute/cli-linux-arm64": "0.1.0",
     "@shellroute/cli-linux-x64": "0.1.0"
-  }
+  },
+  "keywords": [
+    "automation",
+    "cli",
+    "command-line-tool",
+    "developer-tools",
+    "geo-testing",
+    "http-proxy",
+    "network-debugging",
+    "proxy",
+    "shell",
+    "terminal"
+  ]
 }
