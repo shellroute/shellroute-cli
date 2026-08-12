@@ -1,7 +1,7 @@
 {
   "name": "shellroute",
   "version": "0.1.0",
-  "description": "A proxied shell for terminal workflows. Open a session, connect a route, and run commands normally.",
+  "description": "A proxied shell for terminal workflows. Open a session, choose a proxy, and run commands normally.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
