@@ -136,7 +136,8 @@ func runLoginVerifyCode() error {
 
 	display.Success("Logged in successfully")
 	if resp != nil && resp.StarterCredit != "" {
-		display.Info("%s", resp.StarterCredit)
+		fmt.Fprintln(os.Stderr)
+		display.InfoBold("%s", resp.StarterCredit)
 	}
 	return nil
 }
@@ -202,7 +203,8 @@ func runLoginInteractive() error {
 
 	display.Success("Logged in successfully")
 	if resp != nil && resp.StarterCredit != "" {
-		display.Info("%s", resp.StarterCredit)
+		fmt.Fprintln(os.Stderr)
+		display.InfoBold("%s", resp.StarterCredit)
 	}
 
 	// Enter interactive mode
