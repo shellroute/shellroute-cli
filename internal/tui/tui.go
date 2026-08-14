@@ -25,11 +25,11 @@ func Run(cfg *config.Config) error {
 
 	client := api.New(cfg.APIURL, cfg.APIKey)
 
-	// Show balance warning on startup
+	// Show balance warning on startup (threshold from server)
 	if bal, err := client.GetBalance(); err == nil {
 		if bal.BalanceUSD == 0 {
 			display.Warn("Balance $0.00 — top up to use at https://console.shellroute.com")
-		} else if bal.BalanceUSD < 0.50 {
+		} else if bal.LowBalance {
 			display.Warn("Balance low (%s) — top up at https://console.shellroute.com", display.FormatBalance(bal.BalanceUSD))
 		}
 	}
@@ -58,7 +58,7 @@ func RunWithConnect(cfg *config.Config, country string) error {
 	if bal, err := client.GetBalance(); err == nil {
 		if bal.BalanceUSD == 0 {
 			display.Warn("Balance $0.00 — top up to use at https://console.shellroute.com")
-		} else if bal.BalanceUSD < 0.50 {
+		} else if bal.LowBalance {
 			display.Warn("Balance low (%s) — top up at https://console.shellroute.com", display.FormatBalance(bal.BalanceUSD))
 		}
 	}
