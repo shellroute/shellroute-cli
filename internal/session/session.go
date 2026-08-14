@@ -81,12 +81,6 @@ type StartOpts struct {
 	Mode           string        // "proxy", "run", or "" (interactive)
 }
 
-// StartWithCredentials starts a local proxy using pre-existing session credentials
-// (from a rotate response). Does not call the API to create a session.
-func StartWithCredentials(ctx context.Context, client *api.Client, resp *api.SessionCreateResponse, port int) (*Session, error) {
-	return startWithResponse(ctx, client, resp, port, StartOpts{})
-}
-
 // Start creates a new session via the API and starts the local proxy.
 func Start(ctx context.Context, client *api.Client, req *api.SessionCreateRequest, port int, opts ...StartOpts) (*Session, error) {
 	// Bind port before API call — fail fast if port unavailable
@@ -112,9 +106,9 @@ func Start(ctx context.Context, client *api.Client, req *api.SessionCreateReques
 	return startWithResponse(ctx, client, resp, port, sOpts)
 }
 
-// startWithResponse is the shared implementation for Start and StartWithCredentials.
+// startWithResponse is the shared implementation for session start.
 func startWithResponse(ctx context.Context, client *api.Client, resp *api.SessionCreateResponse, port int, opts StartOpts) (*Session, error) {
-	// If port not yet bound (StartWithCredentials path), bind now
+	// If port not yet bound, bind now
 	if port == 0 {
 		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
