@@ -19,8 +19,8 @@ import (
 // Version is set by the cli package at startup.
 var Version = "dev"
 
-// Run starts the interactive shell session. If country is non-empty, auto-connects on start.
-func Run(cfg *config.Config, country ...string) error {
+// Run starts the interactive shell session.
+func Run(cfg *config.Config) error {
 	printBanner()
 
 	client := api.New(cfg.APIURL, cfg.APIKey)
@@ -41,11 +41,7 @@ func Run(cfg *config.Config, country ...string) error {
 		return fmt.Errorf("control server: %w", err)
 	}
 
-	autoConnect := ""
-	if len(country) > 0 {
-		autoConnect = country[0]
-	}
-	runShell(ctrlPort, autoConnect, cfg.DefaultType)
+	runShell(ctrlPort, "", cfg.DefaultType)
 
 	if resp := ctrl.StopAndDisconnect(); resp != nil {
 		printSessionSummary(resp)
