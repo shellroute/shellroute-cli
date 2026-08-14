@@ -114,9 +114,11 @@ func runShell(ctrlPort int, autoConnect string, defaultType string) {
 	if defaultType == "" {
 		defaultType = "residential"
 	}
+	cfgDir, _ := config.Dir()
 	env := append(os.Environ(),
 		fmt.Sprintf("SHELLROUTE_CTRL=%d", ctrlPort),
 		fmt.Sprintf("SHELLROUTE_IPTYPE=%s", defaultType),
+		fmt.Sprintf("SHELLROUTE_CONFIG_DIR=%s", cfgDir),
 		"SHELL_SESSIONS_DISABLE=1",           // suppress macOS session restore on exit
 		"BASH_SILENCE_DEPRECATION_WARNING=1", // suppress macOS "default shell is now zsh" nag
 	)
