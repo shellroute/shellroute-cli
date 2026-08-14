@@ -44,6 +44,10 @@ func Info(msg string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, "  %s\n", fmt.Sprintf(msg, args...))
 }
 
+func InfoBold(msg string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, "  \033[1m%s\033[0m\n", fmt.Sprintf(msg, args...))
+}
+
 func Label(label, value string) {
 	fmt.Fprintf(os.Stderr, "  %s %s\n",
 		labelStyle.Render(label+":"),
