@@ -19,8 +19,8 @@ import (
 // Version is set by the cli package at startup.
 var Version = "dev"
 
-// Run starts the interactive shell session.
-func Run(cfg *config.Config) error {
+// Run starts the interactive shell session. If country is non-empty, auto-connects on start.
+func Run(cfg *config.Config, country ...string) error {
 	printBanner()
 
 	client := api.New(cfg.APIURL, cfg.APIKey)
@@ -41,36 +41,11 @@ func Run(cfg *config.Config) error {
 		return fmt.Errorf("control server: %w", err)
 	}
 
-	runShell(ctrlPort, "", cfg.DefaultType)
-
-	// Disconnect if session is still active
-	if resp := ctrl.StopAndDisconnect(); resp != nil {
-		printSessionSummary(resp)
+	autoConnect := ""
+	if len(country) > 0 {
+		autoConnect = country[0]
 	}
-
-	return nil
-}
-
-// RunWithConnect starts the shell and auto-connects to a country.
-func RunWithConnect(cfg *config.Config, country string) error {
-	client := api.New(cfg.APIURL, cfg.APIKey)
-
-	if bal, err := client.GetBalance(); err == nil {
-		if bal.BalanceUSD == 0 {
-			display.Warn("Balance $0.00 — top up to use at https://console.shellroute.com")
-		} else if bal.LowBalance {
-			display.Warn("Balance low (%s) — top up at https://console.shellroute.com", display.FormatBalance(bal.BalanceUSD))
-		}
-	}
-
-	ctrl := session.NewController(client, cfg)
-
-	ctrlPort, err := ctrl.Start()
-	if err != nil {
-		return fmt.Errorf("control server: %w", err)
-	}
-
-	runShell(ctrlPort, country, cfg.DefaultType)
+	runShell(ctrlPort, autoConnect, cfg.DefaultType)
 
 	if resp := ctrl.StopAndDisconnect(); resp != nil {
 		printSessionSummary(resp)
