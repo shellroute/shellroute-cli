@@ -121,9 +121,10 @@ type LocationsResponse struct {
 }
 
 type LoginResponse struct {
-	APIKey     string  `json:"api_key,omitempty"` // empty — key is generated locally
-	Email      string  `json:"email"`
-	BalanceUSD float64 `json:"balance_usd"`
+	APIKey        string  `json:"api_key,omitempty"` // empty — key is generated locally
+	Email         string  `json:"email"`
+	BalanceUSD    float64 `json:"balance_usd"`
+	StarterCredit string  `json:"starter_credit,omitempty"`
 }
 
 type VersionResponse struct {

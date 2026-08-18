@@ -310,8 +310,8 @@ func writeSettingsCommands(f *os.File) {
 }
 
 /logout() {
-  # Clear stored credentials
-  local config_file="${HOME}/.shellroute/config.toml"
+  # Clear stored credentials (respects local mode via SHELLROUTE_CONFIG_DIR)
+  local config_file="${SHELLROUTE_CONFIG_DIR:-${HOME}/.shellroute}/config.toml"
   if [ -f "$config_file" ]; then
     sed -i.bak 's/^api_key = .*/api_key = ""/' "$config_file" 2>/dev/null || \
     sed -i '' 's/^api_key = .*/api_key = ""/' "$config_file" 2>/dev/null

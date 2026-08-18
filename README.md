@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-Run terminal commands through country-specific residential or datacenter proxies. No VPN, no per-tool configuration. Learn more at [shellroute.com](https://shellroute.com/).
+**Every terminal can be somewhere else.** Open a proxied shell or route one command, then run your terminal workflow normally. Learn more at [shellroute.com](https://shellroute.com/).
 
 ## Install
 
@@ -29,15 +29,21 @@ Supports macOS and Linux.
 ## Quick start
 
 ```bash
-# Log in (creates account if new)
+# Log in. A new account is created automatically.
 shellroute login
 
-# Start a proxy
-shellroute proxy --country US
-
-# In another terminal
-curl -x http://127.0.0.1:41900 https://ipinfo.io/ip
+# Shellroute opens after login. Run these inside it:
+/connect US
+curl https://ipinfo.io/json
 ```
+
+### Or route one command
+
+```bash
+shellroute run DE -- curl https://ipinfo.io/json
+```
+
+[Read the full quickstart](https://shellroute.com/docs/quickstart?utm_source=github&utm_medium=readme&utm_campaign=cli_readme).
 
 ## Commands
 
@@ -57,6 +63,17 @@ curl -x http://127.0.0.1:41900 https://ipinfo.io/ip
 | `shellroute run <country> -- <cmd>` | Run one command through the proxy |
 | `shellroute proxy --country <code>` | Persistent proxy (blocks until Ctrl+C) |
 | `shellroute proxy stop` | Stop running proxy sessions |
+
+#### Local proxy mode
+
+For tools configured with an explicit proxy URL:
+
+```bash
+shellroute proxy --country US
+
+# In another terminal
+curl -x http://127.0.0.1:41900 https://ipinfo.io/ip
+```
 
 ### Info
 
@@ -86,13 +103,13 @@ Run all checks (lint, tests, audit, cross-compile): `./scripts/run-tests.sh`. Re
 Your terminal -> shellroute CLI (local proxy) -> shellroute API -> Gateway -> Exit IP -> Internet
 ```
 
-The CLI runs a local HTTP proxy on `127.0.0.1` and sets `HTTP_PROXY`/`HTTPS_PROXY` for the child process. Proxy-aware tools such as curl, Python Requests, and HTTPX inherit the route. Some clients need explicit configuration. See the [compatibility matrix](docs/compatibility.md) for tested versions and conditions.
+Shellroute implements each active route as a local HTTP proxy and provides standard proxy environment variables to the shell or child process. Clients that use those variables send requests through the selected proxy. Each session remains independent, while shellroute manages credentials, rotation, usage, and cleanup.
 
-Traffic exits through residential or datacenter IPs in 120+ countries.
+[See what shellroute proxies.](docs/compatibility.md)
 
 ## Important
 
-The shellroute CLI is open source. It connects to the shellroute service, which requires a paid account. See [shellroute.com](https://shellroute.com/) for pricing and [acceptable use policy](https://shellroute.com/acceptable-use).
+The shellroute CLI is open source and connects to the shellroute service. The service uses prepaid credits. See [pricing](https://shellroute.com/pricing) and the [acceptable use policy](https://shellroute.com/acceptable-use).
 
 ## Privacy
 

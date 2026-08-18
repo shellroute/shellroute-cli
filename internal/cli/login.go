@@ -118,7 +118,7 @@ func runLoginVerifyCode() error {
 	keyHash := auth.HashClientKey(rawKey)
 	keyPrefix := auth.KeyPrefix(rawKey)
 
-	_, err = client.VerifyLoginCode(loginEmail, loginVerifyCode, keyHash, keyPrefix)
+	resp, err := client.VerifyLoginCode(loginEmail, loginVerifyCode, keyHash, keyPrefix)
 	if err != nil {
 		if apiErr, ok := err.(*api.APIError); ok {
 			display.Error("%s", apiErr.UserMessage())
@@ -135,6 +135,10 @@ func runLoginVerifyCode() error {
 	}
 
 	display.Success("Logged in successfully")
+	if resp != nil && resp.StarterCredit != "" {
+		fmt.Fprintln(os.Stderr)
+		display.InfoBold("%s", resp.StarterCredit)
+	}
 	return nil
 }
 
@@ -181,7 +185,7 @@ func runLoginInteractive() error {
 	keyHash := auth.HashClientKey(rawKey)
 	keyPrefix := auth.KeyPrefix(rawKey)
 
-	_, err = client.VerifyLoginCode(email, code, keyHash, keyPrefix)
+	resp, err := client.VerifyLoginCode(email, code, keyHash, keyPrefix)
 	if err != nil {
 		if apiErr, ok := err.(*api.APIError); ok {
 			display.Error("%s", apiErr.UserMessage())
@@ -198,6 +202,10 @@ func runLoginInteractive() error {
 	}
 
 	display.Success("Logged in successfully")
+	if resp != nil && resp.StarterCredit != "" {
+		fmt.Fprintln(os.Stderr)
+		display.InfoBold("%s", resp.StarterCredit)
+	}
 
 	// Enter interactive mode
 	tui.Version = Version()

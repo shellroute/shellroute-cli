@@ -14,3 +14,7 @@ npm/cli-*/bin/
 # Local release artifacts
 *.tar.gz
 *.zip
+
+# Agent instructions
+AGENTS.md
+CLAUDE.md

@@ -25,11 +25,11 @@ func Run(cfg *config.Config) error {
 
 	client := api.New(cfg.APIURL, cfg.APIKey)
 
-	// Show balance warning on startup
+	// Show balance warning on startup (threshold from server)
 	if bal, err := client.GetBalance(); err == nil {
 		if bal.BalanceUSD == 0 {
 			display.Warn("Balance $0.00 — top up to use at https://console.shellroute.com")
-		} else if bal.BalanceUSD < 0.50 {
+		} else if bal.LowBalance {
 			display.Warn("Balance low (%s) — top up at https://console.shellroute.com", display.FormatBalance(bal.BalanceUSD))
 		}
 	}
@@ -42,35 +42,6 @@ func Run(cfg *config.Config) error {
 	}
 
 	runShell(ctrlPort, "", cfg.DefaultType)
-
-	// Disconnect if session is still active
-	if resp := ctrl.StopAndDisconnect(); resp != nil {
-		printSessionSummary(resp)
-	}
-
-	return nil
-}
-
-// RunWithConnect starts the shell and auto-connects to a country.
-func RunWithConnect(cfg *config.Config, country string) error {
-	client := api.New(cfg.APIURL, cfg.APIKey)
-
-	if bal, err := client.GetBalance(); err == nil {
-		if bal.BalanceUSD == 0 {
-			display.Warn("Balance $0.00 — top up to use at https://console.shellroute.com")
-		} else if bal.BalanceUSD < 0.50 {
-			display.Warn("Balance low (%s) — top up at https://console.shellroute.com", display.FormatBalance(bal.BalanceUSD))
-		}
-	}
-
-	ctrl := session.NewController(client, cfg)
-
-	ctrlPort, err := ctrl.Start()
-	if err != nil {
-		return fmt.Errorf("control server: %w", err)
-	}
-
-	runShell(ctrlPort, country, cfg.DefaultType)
 
 	if resp := ctrl.StopAndDisconnect(); resp != nil {
 		printSessionSummary(resp)
@@ -114,9 +85,11 @@ func runShell(ctrlPort int, autoConnect string, defaultType string) {
 	if defaultType == "" {
 		defaultType = "residential"
 	}
+	cfgDir, _ := config.Dir()
 	env := append(os.Environ(),
 		fmt.Sprintf("SHELLROUTE_CTRL=%d", ctrlPort),
 		fmt.Sprintf("SHELLROUTE_IPTYPE=%s", defaultType),
+		fmt.Sprintf("SHELLROUTE_CONFIG_DIR=%s", cfgDir),
 		"SHELL_SESSIONS_DISABLE=1",           // suppress macOS session restore on exit
 		"BASH_SILENCE_DEPRECATION_WARNING=1", // suppress macOS "default shell is now zsh" nag
 	)
