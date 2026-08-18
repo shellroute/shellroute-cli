@@ -1,6 +1,6 @@
 {
   "name": "shellroute",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "A proxied shell for terminal workflows. Open a session, choose a proxy, and run commands normally.",
   "license": "Apache-2.0",
   "repository": {
@@ -11,16 +11,17 @@
   "files": [
     "bin",
     "LICENSE",
-    "NOTICE"
+    "NOTICE",
+    "README.md"
   ],
   "bin": {
     "shellroute": "bin/shellroute"
   },
   "optionalDependencies": {
-    "@shellroute/cli-darwin-arm64": "0.1.0",
-    "@shellroute/cli-darwin-x64": "0.1.0",
-    "@shellroute/cli-linux-arm64": "0.1.0",
-    "@shellroute/cli-linux-x64": "0.1.0"
+    "@shellroute/cli-darwin-arm64": "0.0.0",
+    "@shellroute/cli-darwin-x64": "0.0.0",
+    "@shellroute/cli-linux-arm64": "0.0.0",
+    "@shellroute/cli-linux-x64": "0.0.0"
   },
   "keywords": [
     "automation",

@@ -29,17 +29,21 @@ Supports macOS and Linux.
 ## Quick start
 
 ```bash
-# Log in (creates account if new)
+# Log in. A new account is created automatically.
 shellroute login
 
-# Open a proxied shell
-shellroute
+# Shellroute opens after login. Run these inside it:
 /connect US
 curl https://ipinfo.io/json
+```
 
-# Or route one command
+### Or route one command
+
+```bash
 shellroute run DE -- curl https://ipinfo.io/json
 ```
+
+[Read the full quickstart](https://shellroute.com/docs/quickstart?utm_source=github&utm_medium=readme&utm_campaign=cli_readme).
 
 ## Commands
 
@@ -105,7 +109,7 @@ Shellroute implements each active route as a local HTTP proxy and provides stand
 
 ## Important
 
-The shellroute CLI is open source. It connects to the shellroute service, which requires a paid account. See [shellroute.com](https://shellroute.com/) for pricing and [acceptable use policy](https://shellroute.com/acceptable-use).
+The shellroute CLI is open source and connects to the shellroute service. The service uses prepaid credits. See [pricing](https://shellroute.com/pricing) and the [acceptable use policy](https://shellroute.com/acceptable-use).
 
 ## Privacy
 
