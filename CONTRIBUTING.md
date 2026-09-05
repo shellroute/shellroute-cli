@@ -25,6 +25,16 @@ This runs: go vet, gofmt, build, unit tests (with race detector), public audit, 
 4. Run `./scripts/run-tests.sh`
 5. Open a pull request
 
+## Optional live tests
+
+Some tests create real paid sessions. They are not part of `run-tests.sh` and require explicit opt-in:
+
+```bash
+./scripts/test-run-signal-live.sh --live
+```
+
+Run `--help` on each script for details.
+
 ## DCO
 
 All commits must be signed off (`git commit -s`). This certifies you wrote the code or have the right to submit it under the Apache 2.0 license.

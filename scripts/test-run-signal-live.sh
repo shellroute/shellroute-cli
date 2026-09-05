@@ -9,54 +9,94 @@ set -uo pipefail
 #
 # Requirements:
 #   - Authenticated shellroute (shellroute login or SHELLROUTE_API_KEY)
-#   - Current checkout builds successfully
-#
-# Default country: US
+#   - Go toolchain (builds from current checkout)
+
+SCRIPT_NAME="$(basename "$0")"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 usage() {
-    echo "Usage: $0 --live [COUNTRY]"
-    echo ""
-    echo "Live signal-handling test for shellroute run."
-    echo "Creates one real minimally-used paid session."
-    echo ""
-    echo "Options:"
-    echo "  --live      Required. Confirms you accept one paid session."
-    echo "  --help      Show this help."
-    echo ""
-    echo "Arguments:"
-    echo "  COUNTRY     ISO country code (default: US)"
+    cat <<EOF
+Usage: $SCRIPT_NAME --live [COUNTRY]
+
+Live signal-handling test for shellroute run.
+Creates one real minimally-used paid session.
+
+Options:
+  --live      Required. Confirms you accept one paid session.
+  --help, -h  Show this help.
+
+Arguments:
+  COUNTRY     ISO country code (default: US)
+EOF
     exit 0
 }
 
-# --- Parse args ---
+# --- Parse args strictly ---
 LIVE=false
 COUNTRY=US
-for arg in "$@"; do
-    case "$arg" in
+POSITIONAL=0
+while [ $# -gt 0 ]; do
+    case "$1" in
         --live) LIVE=true ;;
         --help|-h) usage ;;
-        *) COUNTRY="$arg" ;;
+        -*)
+            echo "Error: unknown flag: $1"
+            echo "Run $SCRIPT_NAME --help for usage."
+            exit 1
+            ;;
+        *)
+            if [ $POSITIONAL -eq 0 ]; then
+                COUNTRY="$1"
+                POSITIONAL=1
+            else
+                echo "Error: unexpected argument: $1"
+                echo "Run $SCRIPT_NAME --help for usage."
+                exit 1
+            fi
+            ;;
     esac
+    shift
 done
 
 if [ "$LIVE" != "true" ]; then
     echo "Error: this test creates a real paid session."
-    echo "Run with --live to confirm: $0 --live [$COUNTRY]"
+    echo "Run with --live to confirm: $SCRIPT_NAME --live [$COUNTRY]"
     exit 1
 fi
 
-# --- Build from current checkout ---
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BUILD_DIR=$(mktemp -d)
-trap 'rm -rf "$BUILD_DIR" "$READY_FILE" 2>/dev/null; [ -n "${SR_PID:-}" ] && kill "$SR_PID" 2>/dev/null; wait "$SR_PID" 2>/dev/null' EXIT
+# --- Create temp dir first (before any cleanup references) ---
+WORK_DIR=$(mktemp -d)
+READY_FILE="$WORK_DIR/child-ready"
+PGID_FILE="$WORK_DIR/child-pgid"
+SR_PID=""
 
+cleanup() {
+    # Kill shellroute process group if still running
+    if [ -n "$SR_PID" ] && kill -0 "$SR_PID" 2>/dev/null; then
+        kill -TERM "$SR_PID" 2>/dev/null
+        sleep 1
+        kill -9 "$SR_PID" 2>/dev/null
+    fi
+    # Kill child process group if recorded and still exists
+    if [ -f "$PGID_FILE" ]; then
+        local pgid
+        pgid=$(cat "$PGID_FILE" 2>/dev/null)
+        if [ -n "$pgid" ] && kill -0 "-$pgid" 2>/dev/null; then
+            kill -9 "-$pgid" 2>/dev/null
+        fi
+    fi
+    rm -rf "$WORK_DIR"
+}
+trap cleanup EXIT
+
+# --- Build from current checkout ---
 echo "=== Building shellroute from current checkout ==="
-go build -o "$BUILD_DIR/shellroute" "$REPO_ROOT/cmd/shellroute" 2>&1
+(cd "$REPO_ROOT" && go build -o "$WORK_DIR/shellroute" ./cmd/shellroute) 2>&1
 if [ $? -ne 0 ]; then
     echo "FAIL: build failed"
     exit 1
 fi
-SR="$BUILD_DIR/shellroute"
+SR="$WORK_DIR/shellroute"
 echo "Built: $SR"
 
 # --- Verify auth ---
@@ -66,23 +106,22 @@ if ! "$SR" balance >/dev/null 2>&1; then
 fi
 echo "Auth: ok"
 
-# --- Create readiness signal file ---
-READY_FILE=$(mktemp)
-rm -f "$READY_FILE"
+echo ""
+echo "=== Running shellroute run $COUNTRY with signal test ==="
 
-# --- Child script: signals readiness, traps SIGTERM, exits with code 42 ---
+# --- Child script: writes PGID, signals readiness, traps SIGTERM, exits 0 ---
 CHILD_SCRIPT='
-ready_file="$1"
-trap '"'"'echo CHILD_GOT_SIGTERM; exit 42'"'"' TERM
+pgid_file="$1"
+ready_file="$2"
+echo $$ > "$pgid_file"
+trap '"'"'echo CHILD_GOT_SIGTERM >&2; exit 0'"'"' TERM
 touch "$ready_file"
 while true; do sleep 0.1; done
 '
 
-echo ""
-echo "=== Running shellroute run $COUNTRY with signal test ==="
-
-# Launch shellroute run in background with a child that traps SIGTERM
-"$SR" run "$COUNTRY" -- bash -c "$CHILD_SCRIPT" -- "$READY_FILE" >"$BUILD_DIR/stdout" 2>"$BUILD_DIR/stderr" &
+# Launch shellroute run in background
+"$SR" run "$COUNTRY" -- bash -c "$CHILD_SCRIPT" -- "$PGID_FILE" "$READY_FILE" \
+    >"$WORK_DIR/stdout" 2>"$WORK_DIR/stderr" &
 SR_PID=$!
 
 # --- Wait for child readiness (max 60s) ---
@@ -91,20 +130,18 @@ WAITED=0
 while [ ! -f "$READY_FILE" ] && [ $WAITED -lt 60 ]; do
     sleep 1
     WAITED=$((WAITED + 1))
-    # Check if shellroute already exited (connection failure)
     if ! kill -0 "$SR_PID" 2>/dev/null; then
         echo "FAIL: shellroute exited before child was ready."
         echo "--- stdout ---"
-        cat "$BUILD_DIR/stdout"
+        cat "$WORK_DIR/stdout"
         echo "--- stderr ---"
-        cat "$BUILD_DIR/stderr"
+        cat "$WORK_DIR/stderr"
         exit 1
     fi
 done
 
 if [ ! -f "$READY_FILE" ]; then
     echo "FAIL: child did not signal readiness within 60s."
-    kill "$SR_PID" 2>/dev/null
     exit 1
 fi
 echo "Child ready after ${WAITED}s."
@@ -122,7 +159,10 @@ done
 
 if kill -0 "$SR_PID" 2>/dev/null; then
     echo "FAIL: shellroute did not exit within 15s after SIGTERM."
-    kill -9 "$SR_PID" 2>/dev/null
+    echo "--- stdout ---"
+    cat "$WORK_DIR/stdout"
+    echo "--- stderr ---"
+    cat "$WORK_DIR/stderr"
     exit 1
 fi
 
@@ -136,50 +176,66 @@ echo "Shellroute exited (code $SR_EXIT) after ${WAITED}s."
 PASS=0
 FAIL=0
 
+show_output() {
+    echo "--- stdout ---"
+    cat "$WORK_DIR/stdout"
+    echo "--- stderr ---"
+    cat "$WORK_DIR/stderr"
+}
+
 echo ""
 echo "=== Verification ==="
 
-# 1. Child received SIGTERM (printed CHILD_GOT_SIGTERM)
-if grep -q "CHILD_GOT_SIGTERM" "$BUILD_DIR/stdout"; then
+# 1. Shellroute exited 0 (child exited 0 from trap)
+if [ "$SR_EXIT" -eq 0 ]; then
+    echo "  PASS: shellroute exited 0"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: shellroute exited $SR_EXIT, want 0"
+    FAIL=$((FAIL + 1))
+    show_output
+fi
+
+# 2. Child received SIGTERM
+if grep -q "CHILD_GOT_SIGTERM" "$WORK_DIR/stderr"; then
     echo "  PASS: child received SIGTERM"
     PASS=$((PASS + 1))
 else
-    echo "  FAIL: child did not receive SIGTERM"
+    echo "  FAIL: child did not print CHILD_GOT_SIGTERM"
     FAIL=$((FAIL + 1))
+    show_output
 fi
 
-# 2. Session ended cleanly (stderr contains "session ended")
-if grep -q "session ended" "$BUILD_DIR/stderr"; then
+# 3. Session ended cleanly
+if grep -q "shellroute session ended" "$WORK_DIR/stderr"; then
     echo "  PASS: session ended cleanly"
     PASS=$((PASS + 1))
 else
-    echo "  FAIL: no 'session ended' in stderr"
+    echo "  FAIL: no 'shellroute session ended' in stderr"
     FAIL=$((FAIL + 1))
+    show_output
 fi
 
-# 3. No child process remains
-if pgrep -f "CHILD_GOT_SIGTERM" >/dev/null 2>&1; then
-    echo "  FAIL: child process still running"
-    FAIL=$((FAIL + 1))
+# 4. No child process remains (check exact PGID)
+if [ -f "$PGID_FILE" ]; then
+    CHILD_PGID=$(cat "$PGID_FILE")
+    if [ -n "$CHILD_PGID" ] && kill -0 "$CHILD_PGID" 2>/dev/null; then
+        echo "  FAIL: child process $CHILD_PGID still running"
+        FAIL=$((FAIL + 1))
+    else
+        echo "  PASS: child process $CHILD_PGID no longer exists"
+        PASS=$((PASS + 1))
+    fi
 else
-    echo "  PASS: no child process remains"
-    PASS=$((PASS + 1))
+    echo "  FAIL: child did not write PGID file"
+    FAIL=$((FAIL + 1))
 fi
-
-# 4. Shellroute exited (already verified above, but confirm non-hang)
-echo "  PASS: shellroute exited within timeout"
-PASS=$((PASS + 1))
 
 echo ""
 echo "=== Results ==="
 echo "Passed: $PASS  Failed: $FAIL"
 
 if [ $FAIL -gt 0 ]; then
-    echo ""
-    echo "--- stdout ---"
-    cat "$BUILD_DIR/stdout"
-    echo "--- stderr ---"
-    cat "$BUILD_DIR/stderr"
     exit 1
 fi
 
