@@ -72,11 +72,11 @@ PGID_FILE="$WORK_DIR/child-pgid"
 SR_PID=""
 
 cleanup() {
-    # Give shellroute time for 5s child escalation + API session teardown (~10s total)
+    # Give shellroute time for 5s child escalation + 15s API client timeout + margin
     if [ -n "$SR_PID" ] && kill -0 "$SR_PID" 2>/dev/null; then
         kill -TERM "$SR_PID" 2>/dev/null
         local w=0
-        while kill -0 "$SR_PID" 2>/dev/null && [ $w -lt 10 ]; do
+        while kill -0 "$SR_PID" 2>/dev/null && [ $w -lt 25 ]; do
             sleep 1; w=$((w + 1))
         done
         # Only SIGKILL if still alive (avoid PID reuse)
