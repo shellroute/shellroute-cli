@@ -12,9 +12,9 @@ import (
 
 // SignalHandlerConfig holds the dependencies for the child signal handler.
 type SignalHandlerConfig struct {
-	Pid          int            // child process PID (positive = process, negative = group)
-	ChildRunning *atomic.Bool   // set to false when child exits
-	KillCancel   chan struct{}  // closed when child exits (cancels escalation)
+	Pid           int           // child process PID (positive = process, negative = group)
+	ChildRunning  *atomic.Bool  // set to false when child exits
+	KillCancel    chan struct{} // closed when child exits (cancels escalation)
 	EscalateAfter time.Duration // duration before SIGKILL escalation (default 5s)
 }
 
