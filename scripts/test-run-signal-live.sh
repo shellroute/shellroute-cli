@@ -65,27 +65,32 @@ if [ "$LIVE" != "true" ]; then
 fi
 
 # --- Create temp dir first (before any cleanup references) ---
-WORK_DIR=$(mktemp -d)
+WORK_DIR=$(mktemp -d) || { echo "FAIL: mktemp failed"; exit 1; }
+[ -d "$WORK_DIR" ] || { echo "FAIL: temp dir does not exist"; exit 1; }
 READY_FILE="$WORK_DIR/child-ready"
 PGID_FILE="$WORK_DIR/child-pgid"
 SR_PID=""
 
 cleanup() {
-    # Kill shellroute process group if still running
+    # Give shellroute time for its graceful 5s escalation + sess.Stop()
     if [ -n "$SR_PID" ] && kill -0 "$SR_PID" 2>/dev/null; then
         kill -TERM "$SR_PID" 2>/dev/null
-        sleep 1
+        local w=0
+        while kill -0 "$SR_PID" 2>/dev/null && [ $w -lt 7 ]; do
+            sleep 1; w=$((w + 1))
+        done
         kill -9 "$SR_PID" 2>/dev/null
+        wait "$SR_PID" 2>/dev/null
     fi
-    # Kill child process group if recorded and still exists
+    # Kill child process group by exact PGID
     if [ -f "$PGID_FILE" ]; then
         local pgid
         pgid=$(cat "$PGID_FILE" 2>/dev/null)
-        if [ -n "$pgid" ] && kill -0 "-$pgid" 2>/dev/null; then
-            kill -9 "-$pgid" 2>/dev/null
+        if [ -n "$pgid" ] && [ "$pgid" -gt 0 ] 2>/dev/null && kill -0 -- "-$pgid" 2>/dev/null; then
+            kill -9 -- "-$pgid" 2>/dev/null
         fi
     fi
-    rm -rf "$WORK_DIR"
+    [ -d "$WORK_DIR" ] && rm -rf "$WORK_DIR"
 }
 trap cleanup EXIT
 
@@ -207,24 +212,29 @@ else
 fi
 
 # 3. Session ended cleanly
-if grep -q "shellroute session ended" "$WORK_DIR/stderr"; then
+if grep -qF "shellroute session ended." "$WORK_DIR/stderr"; then
     echo "  PASS: session ended cleanly"
     PASS=$((PASS + 1))
 else
-    echo "  FAIL: no 'shellroute session ended' in stderr"
+    echo "  FAIL: no 'shellroute session ended.' in stderr"
     FAIL=$((FAIL + 1))
     show_output
 fi
 
-# 4. No child process remains (check exact PGID)
+# 4. No child process group remains (check exact PGID)
 if [ -f "$PGID_FILE" ]; then
     CHILD_PGID=$(cat "$PGID_FILE")
-    if [ -n "$CHILD_PGID" ] && kill -0 "$CHILD_PGID" 2>/dev/null; then
-        echo "  FAIL: child process $CHILD_PGID still running"
-        FAIL=$((FAIL + 1))
+    if [ -n "$CHILD_PGID" ] && [ "$CHILD_PGID" -gt 0 ] 2>/dev/null; then
+        if kill -0 -- "-$CHILD_PGID" 2>/dev/null; then
+            echo "  FAIL: child process group $CHILD_PGID still running"
+            FAIL=$((FAIL + 1))
+        else
+            echo "  PASS: child process group $CHILD_PGID no longer exists"
+            PASS=$((PASS + 1))
+        fi
     else
-        echo "  PASS: child process $CHILD_PGID no longer exists"
-        PASS=$((PASS + 1))
+        echo "  FAIL: invalid PGID in file: '$CHILD_PGID'"
+        FAIL=$((FAIL + 1))
     fi
 else
     echo "  FAIL: child did not write PGID file"
