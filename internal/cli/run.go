@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -169,11 +170,38 @@ func runRun(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(os.Stderr, "\n  Connection lost during execution. Command killed.")
 	}
 
+	// Handle SIGINT/SIGTERM/SIGHUP: forward to child, wait for it to exit,
+	// then clean up the session. This ensures systemd stop, Ctrl+C, and
+	// terminal close all end the API session cleanly.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	go func() {
+		sig, ok := <-sigCh
+		if !ok || !childRunning.Load() {
+			return
+		}
+		// Forward signal to child process group
+		if childCmd.Process != nil {
+			syscall.Kill(-childCmd.Process.Pid, sig.(syscall.Signal))
+		}
+		// Escalate after 5 seconds if child doesn't exit
+		go func() {
+			select {
+			case <-time.After(5 * time.Second):
+				if childRunning.Load() && childCmd.Process != nil {
+					syscall.Kill(-childCmd.Process.Pid, syscall.SIGKILL)
+				}
+			case <-killCancel:
+			}
+		}()
+	}()
+
 	childErr := childCmd.Wait()
 	childRunning.Store(false)
 	close(killCancel)
+	signal.Stop(sigCh)
 
-	// Tear down session
+	// Tear down session — always called, even after signal
 	resp, stopErr := sess.Stop()
 	if !runNoStat {
 		if childErr != nil {
