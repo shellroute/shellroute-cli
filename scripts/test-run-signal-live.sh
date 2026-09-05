@@ -158,15 +158,15 @@ echo "Child ready after ${WAITED}s."
 echo "Sending SIGTERM to shellroute (PID $SR_PID)..."
 kill -TERM "$SR_PID"
 
-# --- Wait for shellroute to exit (max 15s) ---
+# --- Wait for shellroute to exit (max 20s: 5s escalation + 15s API timeout) ---
 WAITED=0
-while kill -0 "$SR_PID" 2>/dev/null && [ $WAITED -lt 15 ]; do
+while kill -0 "$SR_PID" 2>/dev/null && [ $WAITED -lt 20 ]; do
     sleep 1
     WAITED=$((WAITED + 1))
 done
 
 if kill -0 "$SR_PID" 2>/dev/null; then
-    echo "FAIL: shellroute did not exit within 15s after SIGTERM."
+    echo "FAIL: shellroute did not exit within 20s after SIGTERM."
     echo "--- stdout ---"
     cat "$WORK_DIR/stdout"
     echo "--- stderr ---"
