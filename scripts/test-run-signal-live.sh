@@ -72,14 +72,17 @@ PGID_FILE="$WORK_DIR/child-pgid"
 SR_PID=""
 
 cleanup() {
-    # Give shellroute time for its graceful 5s escalation + sess.Stop()
+    # Give shellroute time for 5s child escalation + API session teardown (~10s total)
     if [ -n "$SR_PID" ] && kill -0 "$SR_PID" 2>/dev/null; then
         kill -TERM "$SR_PID" 2>/dev/null
         local w=0
-        while kill -0 "$SR_PID" 2>/dev/null && [ $w -lt 7 ]; do
+        while kill -0 "$SR_PID" 2>/dev/null && [ $w -lt 10 ]; do
             sleep 1; w=$((w + 1))
         done
-        kill -9 "$SR_PID" 2>/dev/null
+        # Only SIGKILL if still alive (avoid PID reuse)
+        if kill -0 "$SR_PID" 2>/dev/null; then
+            kill -9 "$SR_PID" 2>/dev/null
+        fi
         wait "$SR_PID" 2>/dev/null
     fi
     # Kill child process group by exact PGID

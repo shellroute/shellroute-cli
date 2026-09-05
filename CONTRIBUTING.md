@@ -25,15 +25,15 @@ This runs: go vet, gofmt, build, unit tests (with race detector), public audit, 
 4. Run `./scripts/run-tests.sh`
 5. Open a pull request
 
-## Optional live tests
+## Optional live test
 
-Some tests create real paid sessions. They are not part of `run-tests.sh` and require explicit opt-in:
+`test-run-signal-live.sh` verifies that `shellroute run` forwards SIGTERM to the child process and ends the API session cleanly. It creates one real paid session and requires `--live`:
 
 ```bash
-./scripts/test-run-signal-live.sh --live
+./scripts/test-run-signal-live.sh --live [COUNTRY]
 ```
 
-Run `--help` on each script for details.
+Not part of `run-tests.sh` or CI. Run manually before releasing signal-handling changes.
 
 ## DCO
 
