@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/signal"
 	"syscall"
 	"time"
 
@@ -127,8 +126,13 @@ func runConnectHeadless(cfg *config.Config, country string) error {
 
 	client := api.New(cfg.APIURL, cfg.APIKey)
 
+	// Stop signals are handled from here on: during startup they abort the
+	// session, afterwards they end it.
+	ctx, cancel := context.WithCancel(context.Background())
+	sigs := NewSignalHandler(cancel, syscall.SIGINT, syscall.SIGTERM)
+
 	sess, err := session.Start(
-		context.Background(),
+		ctx,
 		client,
 		&api.SessionCreateRequest{
 			Country: country,
@@ -140,10 +144,16 @@ func runConnectHeadless(cfg *config.Config, country string) error {
 		session.StartOpts{Mode: "proxy"},
 	)
 	if err != nil {
+		sigs.Stop()
 		return handleSessionError(err)
 	}
 
+	if sigs.StartupSignal() != 0 {
+		return waitAndDisconnect(sess, sigs)
+	}
+
 	if sess.GetExitIP() == "" {
+		sigs.Stop()
 		sess.Stop()
 		display.Error("Connection failed — no working upstream. Try again.")
 		return fmt.Errorf("no exit IP")
@@ -156,13 +166,13 @@ func runConnectHeadless(cfg *config.Config, country string) error {
 		outputEnv(sess)
 	}
 
-	return waitAndDisconnect(sess)
+	return waitAndDisconnect(sess, sigs)
 }
 
-func waitAndDisconnect(sess *session.Session) error {
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
+// waitAndDisconnect blocks until a stop signal, then ends the session.
+func waitAndDisconnect(sess *session.Session, sigs *SignalHandler) error {
+	sigs.Wait()
+	sigs.Stop()
 
 	fmt.Fprintln(os.Stderr)
 
