@@ -162,7 +162,7 @@ func (c *Controller) autoRotateWithContext(ctx context.Context) {
 		return
 	}
 	if sess.GetExitIP() == "" {
-		if ip := detectExitIPRetry(sess.Port, 15*time.Second); ip != "" {
+		if ip := detectExitIPRetry(ctx, sess.Port, 15*time.Second); ip != "" {
 			sess.SetExitIP(ip)
 		}
 	}
@@ -344,7 +344,7 @@ func (c *Controller) httpConnect(w http.ResponseWriter, r *http.Request) {
 		if c.connectTimeout > 0 {
 			retryTimeout = c.connectTimeout
 		}
-		if ip := detectExitIPRetry(sess.Port, retryTimeout); ip != "" {
+		if ip := detectExitIPRetry(context.Background(), sess.Port, retryTimeout); ip != "" {
 			sess.SetExitIP(ip)
 		}
 	}
@@ -509,7 +509,7 @@ func (c *Controller) httpRotate(w http.ResponseWriter, r *http.Request) {
 	sess := c.sess
 	c.mu.Unlock()
 	if sess != nil && sess.GetExitIP() == "" {
-		if ip := detectExitIPRetry(sess.Port, 20*time.Second); ip != "" {
+		if ip := detectExitIPRetry(context.Background(), sess.Port, 20*time.Second); ip != "" {
 			sess.SetExitIP(ip)
 		}
 	}

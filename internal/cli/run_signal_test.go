@@ -3,6 +3,9 @@
 package cli
 
 import (
+	"context"
+	"errors"
+	"os"
 	"os/exec"
 	"sync/atomic"
 	"syscall"
@@ -10,7 +13,8 @@ import (
 	"time"
 )
 
-// All tests call the production RunSignalHandler from run_signal.go.
+// All tests drive the production SignalHandler. Signals are sent to the test
+// process itself and reach the handler through signal.Notify, as in production.
 
 func startChild(t *testing.T, script string) *exec.Cmd {
 	t.Helper()
@@ -23,175 +27,175 @@ func startChild(t *testing.T, script string) *exec.Cmd {
 	return cmd
 }
 
-// TestHandler_ForwardSIGTERM: production handler forwards SIGTERM to child group.
-func TestHandler_ForwardSIGTERM(t *testing.T) {
-	cmd := startChild(t, `trap 'exit 42' TERM; while true; do sleep 0.1; done`)
-
-	var running atomic.Bool
-	running.Store(true)
-	cancel := make(chan struct{})
-
-	cleanup := RunSignalHandler(SignalHandlerConfig{
-		Pid:           -cmd.Process.Pid,
-		ChildRunning:  &running,
-		KillCancel:    cancel,
-		EscalateAfter: 5 * time.Second,
-	})
-
-	// Simulate: OS sends SIGTERM to our process (via the handler's signal channel)
-	syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
-
-	err := cmd.Wait()
-	running.Store(false)
-	close(cancel)
-	cleanup()
-
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		if exitErr.ExitCode() != 42 {
-			t.Errorf("exit code = %d, want 42", exitErr.ExitCode())
-		}
-	} else if err == nil {
-		t.Fatal("child should have exited from SIGTERM trap")
-	}
+// childHandler is a running child with a handler attached to its process group.
+type childHandler struct {
+	cmd     *exec.Cmd
+	h       *SignalHandler
+	running atomic.Bool
+	cancel  chan struct{}
+	done    chan error // child's Wait result
 }
 
-// TestHandler_ForwardSIGHUP: production handler forwards SIGHUP.
-func TestHandler_ForwardSIGHUP(t *testing.T) {
-	cmd := startChild(t, `trap 'exit 43' HUP; while true; do sleep 0.1; done`)
-
-	var running atomic.Bool
-	running.Store(true)
-	cancel := make(chan struct{})
-
-	cleanup := RunSignalHandler(SignalHandlerConfig{
-		Pid:           -cmd.Process.Pid,
-		ChildRunning:  &running,
-		KillCancel:    cancel,
-		EscalateAfter: 5 * time.Second,
-	})
-
-	syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
-
-	err := cmd.Wait()
-	running.Store(false)
-	close(cancel)
-	cleanup()
-
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		if exitErr.ExitCode() != 43 {
-			t.Errorf("exit code = %d, want 43", exitErr.ExitCode())
-		}
-	} else if err == nil {
-		t.Fatal("child should have exited from SIGHUP trap")
+func newHandler(sigs ...syscall.Signal) (*SignalHandler, context.Context) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var osSigs []os.Signal
+	for _, s := range sigs {
+		osSigs = append(osSigs, s)
 	}
+	return NewSignalHandler(cancel, osSigs...), ctx
 }
 
-// TestHandler_EscalateToKILL: child ignores SIGTERM, handler escalates to SIGKILL.
-func TestHandler_EscalateToKILL(t *testing.T) {
-	cmd := startChild(t, `trap '' TERM; while true; do sleep 0.1; done`)
+func attachHandler(t *testing.T, script string, escalateAfter time.Duration) *childHandler {
+	t.Helper()
+	c := &childHandler{cmd: startChild(t, script), cancel: make(chan struct{}), done: make(chan error, 1)}
+	c.running.Store(true)
+	c.h, _ = newHandler(syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	c.h.escalateAfter = escalateAfter
+	c.h.Attach(-c.cmd.Process.Pid, &c.running, c.cancel)
+	go func() { c.done <- c.cmd.Wait() }()
+	return c
+}
 
-	var running atomic.Bool
-	running.Store(true)
-	cancel := make(chan struct{})
+// wait returns the child's exit error once it is gone and the handler is stopped.
+func (c *childHandler) wait(t *testing.T) error {
+	t.Helper()
+	var err error
+	select {
+	case err = <-c.done:
+	case <-time.After(5 * time.Second):
+		syscall.Kill(-c.cmd.Process.Pid, syscall.SIGKILL)
+		<-c.done
+		t.Error("child still running after 5s")
+	}
+	c.running.Store(false)
+	close(c.cancel)
+	c.h.Stop()
+	return err
+}
 
-	cleanup := RunSignalHandler(SignalHandlerConfig{
-		Pid:           -cmd.Process.Pid,
-		ChildRunning:  &running,
-		KillCancel:    cancel,
-		EscalateAfter: 500 * time.Millisecond, // shortened for test
-	})
-
-	syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
-
-	err := cmd.Wait()
-	running.Store(false)
-	close(cancel)
-	cleanup()
-
+func exitStatus(t *testing.T, err error) (code int, sig syscall.Signal) {
+	t.Helper()
 	if err == nil {
-		t.Fatal("child should have been killed")
+		return 0, 0
+	}
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	ws := ee.Sys().(syscall.WaitStatus)
+	if ws.Signaled() {
+		return -1, ws.Signal()
+	}
+	return ws.ExitStatus(), 0
+}
+
+func TestHandler_ForwardSIGTERM(t *testing.T) {
+	c := attachHandler(t, `trap 'exit 42' TERM; while true; do sleep 0.1; done`, 5*time.Second)
+	syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+	if code, _ := exitStatus(t, c.wait(t)); code != 42 {
+		t.Errorf("exit code = %d, want 42", code)
 	}
 }
 
-// TestHandler_SecondSignalImmediateKILL: second signal during escalation wait
-// triggers immediate SIGKILL instead of waiting for the timer.
+func TestHandler_ForwardSIGHUP(t *testing.T) {
+	c := attachHandler(t, `trap 'exit 43' HUP; while true; do sleep 0.1; done`, 5*time.Second)
+	syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
+	if code, _ := exitStatus(t, c.wait(t)); code != 43 {
+		t.Errorf("exit code = %d, want 43", code)
+	}
+}
+
+// Child ignores SIGTERM: handler escalates to SIGKILL after escalateAfter.
+func TestHandler_EscalateToKILL(t *testing.T) {
+	c := attachHandler(t, `trap '' TERM; while true; do sleep 0.1; done`, 500*time.Millisecond)
+	syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+	if _, sig := exitStatus(t, c.wait(t)); sig != syscall.SIGKILL {
+		t.Errorf("signal = %v, want SIGKILL", sig)
+	}
+}
+
+// A second signal during the escalation wait kills immediately.
 func TestHandler_SecondSignalImmediateKILL(t *testing.T) {
-	cmd := startChild(t, `trap '' TERM INT; while true; do sleep 0.1; done`)
-
-	var running atomic.Bool
-	running.Store(true)
-	cancel := make(chan struct{})
-
-	cleanup := RunSignalHandler(SignalHandlerConfig{
-		Pid:           -cmd.Process.Pid,
-		ChildRunning:  &running,
-		KillCancel:    cancel,
-		EscalateAfter: 30 * time.Second, // long timer — second signal should beat it
-	})
-
+	c := attachHandler(t, `trap '' TERM INT; while true; do sleep 0.1; done`, 30*time.Second)
 	start := time.Now()
 	syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
 	time.Sleep(200 * time.Millisecond)
-	syscall.Kill(syscall.Getpid(), syscall.SIGINT) // second signal
-
-	err := cmd.Wait()
-	elapsed := time.Since(start)
-	running.Store(false)
-	close(cancel)
-	cleanup()
-
-	if err == nil {
-		t.Fatal("child should have been killed")
+	syscall.Kill(syscall.Getpid(), syscall.SIGINT)
+	_, sig := exitStatus(t, c.wait(t))
+	if sig != syscall.SIGKILL {
+		t.Errorf("signal = %v, want SIGKILL", sig)
 	}
-	if elapsed > 5*time.Second {
-		t.Errorf("took %v — second signal should have triggered immediate SIGKILL", elapsed)
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("took %v — second signal should have killed immediately", elapsed)
 	}
 }
 
-// TestHandler_NoEscalateIfChildExits: child exits promptly, no SIGKILL.
+// Child exits promptly: no SIGKILL, exit code preserved.
 func TestHandler_NoEscalateIfChildExits(t *testing.T) {
-	cmd := startChild(t, `trap 'exit 0' TERM; while true; do sleep 0.1; done`)
+	c := attachHandler(t, `trap 'exit 0' TERM; while true; do sleep 0.1; done`, 300*time.Millisecond)
+	syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+	if code, sig := exitStatus(t, c.wait(t)); code != 0 || sig != 0 {
+		t.Errorf("exit = (%d, %v), want clean exit 0", code, sig)
+	}
+}
 
-	var running atomic.Bool
-	running.Store(true)
-	cancel := make(chan struct{})
+// A signal after the child is gone must not touch its (possibly reused) pgid.
+func TestHandler_SignalAfterChildExitIgnored(t *testing.T) {
+	c := attachHandler(t, `exit 0`, 5*time.Second)
+	<-c.done
+	c.running.Store(false)
+	syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+	time.Sleep(100 * time.Millisecond) // still registered: the handler must swallow it
+	close(c.cancel)
+	c.h.Stop()
+}
 
-	cleanup := RunSignalHandler(SignalHandlerConfig{
-		Pid:           -cmd.Process.Pid,
-		ChildRunning:  &running,
-		KillCancel:    cancel,
-		EscalateAfter: 5 * time.Second,
-	})
+func TestHandler_StopWithoutSignal(t *testing.T) {
+	h, ctx := newHandler(syscall.SIGTERM)
+	h.Stop()
+	if ctx.Err() != nil {
+		t.Error("startup cancelled without a signal")
+	}
+}
+
+// Before Attach, the first signal cancels startup and is remembered.
+func TestHandler_StartupSignalCancels(t *testing.T) {
+	h, ctx := newHandler(syscall.SIGINT, syscall.SIGTERM)
+	defer h.Stop()
 
 	syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+	select {
+	case <-ctx.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("startup not cancelled after SIGTERM")
+	}
+	if sig := h.Wait(); sig != syscall.SIGTERM {
+		t.Errorf("Wait() = %v, want SIGTERM", sig)
+	}
 
-	cmd.Wait()
-	running.Store(false)
-	close(cancel)
-	cleanup()
-
-	// If we get here without hanging, escalation was cancelled
+	syscall.Kill(syscall.Getpid(), syscall.SIGINT)
+	time.Sleep(100 * time.Millisecond)
+	if sig := h.StartupSignal(); sig != syscall.SIGTERM {
+		t.Errorf("StartupSignal() = %v after second signal, want SIGTERM", sig)
+	}
 }
 
-// TestHandler_IgnoredAfterChildExit: handler doesn't panic on signal after child exits.
-func TestHandler_IgnoredAfterChildExit(t *testing.T) {
-	cmd := startChild(t, `exit 0`)
+// A signal that arrived before Attach is forwarded to the child on Attach.
+func TestHandler_AttachForwardsStartupSignal(t *testing.T) {
+	h, ctx := newHandler(syscall.SIGTERM)
+	syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+	select {
+	case <-ctx.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("startup not cancelled after SIGTERM")
+	}
 
-	var running atomic.Bool
-	running.Store(true)
-	cancel := make(chan struct{})
+	c := &childHandler{h: h, cmd: startChild(t, `trap 'exit 42' TERM; while true; do sleep 0.1; done`), cancel: make(chan struct{}), done: make(chan error, 1)}
+	c.running.Store(true)
+	go func() { c.done <- c.cmd.Wait() }()
+	h.Attach(-c.cmd.Process.Pid, &c.running, c.cancel)
 
-	cleanup := RunSignalHandler(SignalHandlerConfig{
-		Pid:           -cmd.Process.Pid,
-		ChildRunning:  &running,
-		KillCancel:    cancel,
-		EscalateAfter: 5 * time.Second,
-	})
-
-	cmd.Wait()
-	running.Store(false)
-	close(cancel)
-	cleanup()
-
-	// No panic = pass
+	if code, _ := exitStatus(t, c.wait(t)); code != 42 {
+		t.Errorf("exit code = %d, want 42 (startup signal forwarded)", code)
+	}
 }

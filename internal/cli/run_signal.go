@@ -3,63 +3,120 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"os/signal"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 )
 
-// SignalHandlerConfig holds the dependencies for the child signal handler.
-type SignalHandlerConfig struct {
-	Pid           int           // child process PID (positive = process, negative = group)
-	ChildRunning  *atomic.Bool  // set to false when child exits
-	KillCancel    chan struct{} // closed when child exits (cancels escalation)
-	EscalateAfter time.Duration // duration before SIGKILL escalation (default 5s)
+// SignalHandler owns stop-signal handling for the life of one session.
+//
+// Before Attach, a stop signal cancels session startup. After Attach, the
+// first signal is forwarded to the child process group and escalated to
+// SIGKILL if the child does not exit in time; a second signal during that
+// wait kills immediately.
+type SignalHandler struct {
+	ch            chan os.Signal
+	cancelStartup context.CancelFunc
+	escalateAfter time.Duration
+
+	mu         sync.Mutex
+	startupSig syscall.Signal // first signal before Attach, 0 if none
+	fired      chan struct{}  // closed with startupSig
+	attached   bool
+	pid        int
+	running    *atomic.Bool
+	killCancel chan struct{}
+	stopOnce   sync.Once
 }
 
-// RunSignalHandler listens for SIGINT/SIGTERM/SIGHUP, forwards to the child
-// process group, and escalates to SIGKILL if the child doesn't exit in time.
-// A second signal during the escalation wait triggers immediate SIGKILL.
-// Returns a cleanup function that must be called after the child exits.
-func RunSignalHandler(cfg SignalHandlerConfig) func() {
-	if cfg.EscalateAfter == 0 {
-		cfg.EscalateAfter = 5 * time.Second
+// NewSignalHandler registers for sigs immediately, so no window exists
+// between creating the session and starting the child.
+func NewSignalHandler(cancelStartup context.CancelFunc, sigs ...os.Signal) *SignalHandler {
+	h := &SignalHandler{
+		ch:            make(chan os.Signal, 2), // room for a second signal during escalation
+		cancelStartup: cancelStartup,
+		escalateAfter: 5 * time.Second,
+		fired:         make(chan struct{}),
 	}
+	signal.Notify(h.ch, sigs...)
+	go h.loop()
+	return h
+}
 
-	sigCh := make(chan os.Signal, 2) // buffer 2 so second signal isn't lost
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-
-	go func() {
-		sig, ok := <-sigCh
-		if !ok || !cfg.ChildRunning.Load() {
-			return
+func (h *SignalHandler) loop() {
+	for s := range h.ch {
+		sig := s.(syscall.Signal)
+		h.mu.Lock()
+		if !h.attached {
+			if h.startupSig == 0 {
+				h.startupSig = sig
+				close(h.fired)
+				h.cancelStartup()
+			}
+			h.mu.Unlock()
+			continue
 		}
+		pid, running, killCancel := h.pid, h.running, h.killCancel
+		h.mu.Unlock()
 
-		// Forward first signal to child process group
-		syscall.Kill(cfg.Pid, sig.(syscall.Signal))
-
-		// Wait for child exit, escalation timeout, or second signal
+		if !running.Load() {
+			continue
+		}
+		syscall.Kill(pid, sig)
 		select {
-		case <-time.After(cfg.EscalateAfter):
-			if cfg.ChildRunning.Load() {
-				syscall.Kill(cfg.Pid, syscall.SIGKILL)
+		case <-time.After(h.escalateAfter):
+			if running.Load() {
+				syscall.Kill(pid, syscall.SIGKILL)
 			}
-		case <-sigCh:
-			// Second signal — immediate SIGKILL
-			if cfg.ChildRunning.Load() {
-				syscall.Kill(cfg.Pid, syscall.SIGKILL)
+		case <-h.ch: // second signal
+			if running.Load() {
+				syscall.Kill(pid, syscall.SIGKILL)
 			}
-		case <-cfg.KillCancel:
-			// Child exited normally
+		case <-killCancel:
 		}
-	}()
-
-	return func() {
-		signal.Stop(sigCh)
-		close(sigCh)
 	}
+}
+
+// StartupSignal returns the signal received before Attach, or 0.
+func (h *SignalHandler) StartupSignal() syscall.Signal {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.startupSig
+}
+
+// Wait blocks until a signal arrives; for modes that run no child.
+func (h *SignalHandler) Wait() syscall.Signal {
+	<-h.fired
+	return h.StartupSignal()
+}
+
+// Attach starts forwarding signals to pid (negative = process group).
+// A signal that arrived before Attach is forwarded now.
+func (h *SignalHandler) Attach(pid int, running *atomic.Bool, killCancel chan struct{}) {
+	h.mu.Lock()
+	h.attached = true
+	h.pid, h.running, h.killCancel = pid, running, killCancel
+	sig := h.startupSig
+	h.mu.Unlock()
+	if sig != 0 {
+		select {
+		case h.ch <- sig:
+		default: // buffer full: the pending signals get forwarded instead
+		}
+	}
+}
+
+// Stop unregisters the handler; later signals get default handling.
+func (h *SignalHandler) Stop() {
+	h.stopOnce.Do(func() {
+		signal.Stop(h.ch)
+		close(h.ch)
+	})
 }
 
 // childSignal returns the signal that terminated the child, or 0.

@@ -201,7 +201,7 @@ func startWithResponse(ctx context.Context, client *api.Client, resp *api.Sessio
 	}
 	connectStart := time.Now()
 	if s.GetExitIP() == "" {
-		if ip := detectExitIPRetry(port, connectTimeout); ip != "" {
+		if ip := detectExitIPRetry(ctx, port, connectTimeout); ip != "" {
 			s.SetExitIP(ip)
 		}
 	}
@@ -354,14 +354,19 @@ func gatewayNeedsTLS(endpoint string) bool {
 	return host != "localhost" && host != "127.0.0.1" && host != "::1"
 }
 
-// detectExitIPRetry tries to detect exit IP with retries up to the given timeout.
-func detectExitIPRetry(port int, timeout time.Duration) string {
+// detectExitIPRetry tries to detect exit IP with retries up to the given
+// timeout, or until ctx is cancelled.
+func detectExitIPRetry(ctx context.Context, port int, timeout time.Duration) string {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if ip := detectExitIP(port); ip != "" {
+		if ip := detectExitIP(ctx, port); ip != "" {
 			return ip
 		}
-		time.Sleep(2 * time.Second)
+		select {
+		case <-ctx.Done():
+			return ""
+		case <-time.After(2 * time.Second):
+		}
 	}
 	return ""
 }
@@ -371,7 +376,7 @@ var ipDetectEndpoints = []string{
 	"https://api.ipify.org",
 }
 
-func detectExitIP(port int) string {
+func detectExitIP(ctx context.Context, port int) string {
 	proxyURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 	transport := &http.Transport{
 		Proxy: func(*http.Request) (*neturl.URL, error) {
@@ -384,7 +389,11 @@ func detectExitIP(port int) string {
 	}
 
 	for _, endpoint := range ipDetectEndpoints {
-		resp, err := client.Get(endpoint)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
 		if err != nil {
 			continue
 		}

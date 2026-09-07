@@ -104,9 +104,13 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	client := api.New(cfg.APIURL, cfg.APIKey)
 
-	// Start session
+	// Stop signals are handled from here on: during startup they abort the
+	// session, once the child runs they are forwarded to it.
+	ctx, cancel := context.WithCancel(context.Background())
+	sigs := NewSignalHandler(cancel, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+
 	sess, err := session.Start(
-		context.Background(),
+		ctx,
 		client,
 		&api.SessionCreateRequest{
 			Country: country,
@@ -118,10 +122,18 @@ func runRun(cmd *cobra.Command, args []string) error {
 		session.StartOpts{TrackRelays: true, Mode: "run"},
 	)
 	if err != nil {
+		sigs.Stop()
 		return handleSessionError(err)
 	}
 
+	if sig := sigs.StartupSignal(); sig != 0 {
+		sigs.Stop()
+		endRunSession(sess)
+		exitFromSignal(sig)
+	}
+
 	if sess.GetExitIP() == "" {
+		sigs.Stop()
 		sess.Stop()
 		display.Error("Connection failed — no working upstream. Try again.")
 		return fmt.Errorf("no exit IP")
@@ -140,6 +152,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	childCmd.Env = buildProxyEnv(os.Environ(), sess.ProxyURL())
 
 	if err := childCmd.Start(); err != nil {
+		sigs.Stop()
 		sess.Stop()
 		return fmt.Errorf("failed to start command: %w", err)
 	}
@@ -169,42 +182,40 @@ func runRun(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(os.Stderr, "\n  Connection lost during execution. Command killed.")
 	}
 
-	// Handle SIGINT/SIGTERM/SIGHUP: forward to child, escalate if needed,
-	// then clean up the session. Ensures systemd stop, Ctrl+C, and
-	// terminal close all end the API session cleanly.
-	cleanupSig := RunSignalHandler(SignalHandlerConfig{
-		Pid:          -childCmd.Process.Pid, // negative = process group
-		ChildRunning: &childRunning,
-		KillCancel:   killCancel,
-	})
+	sigs.Attach(-childCmd.Process.Pid, &childRunning, killCancel)
 
 	childErr := childCmd.Wait()
 	childRunning.Store(false)
 	close(killCancel)
-	cleanupSig()
+	sigs.Stop()
 
-	// Tear down session — always called, even after signal
-	resp, stopErr := sess.Stop()
+	// A signal death is reported by exiting the same way, not as a failure.
 	exitErr, _ := childErr.(*exec.ExitError)
-	if !runNoStat {
-		// A signal death is reported by exiting the same way, not as a failure.
-		if childErr != nil && (exitErr == nil || childSignal(exitErr) == 0) {
-			display.Error("Command failed: %s", args[0])
-		}
-		if stopErr != nil {
-			display.Error("Failed to end session. Try again.")
-		} else {
-			display.SessionSummary("shellroute session ended.", resp.DurationSec, resp.BytesTotal, resp.CostUSD, resp.BalanceUSD)
-			if resp.BalanceUSD <= 0.001 {
-				display.Warn("Balance depleted. Top up at https://console.shellroute.com, then reconnect.")
-			}
-		}
+	if childErr != nil && !runNoStat && (exitErr == nil || childSignal(exitErr) == 0) {
+		display.Error("Command failed: %s", args[0])
 	}
+	endRunSession(sess)
 
 	if exitErr != nil {
 		exitAsChild(exitErr)
 	}
 	return childErr
+}
+
+// endRunSession ends the session and prints the summary unless --no-stat.
+func endRunSession(sess *session.Session) {
+	resp, err := sess.Stop()
+	if runNoStat {
+		return
+	}
+	if err != nil {
+		display.Error("Failed to end session. Try again.")
+		return
+	}
+	display.SessionSummary("shellroute session ended.", resp.DurationSec, resp.BytesTotal, resp.CostUSD, resp.BalanceUSD)
+	if resp.BalanceUSD <= 0.001 {
+		display.Warn("Balance depleted. Top up at https://console.shellroute.com, then reconnect.")
+	}
 }
 
 const defaultNoProxy = "localhost,127.0.0.1,::1"
