@@ -47,6 +47,8 @@ func TestHelperProcess(t *testing.T) {
 		os.Exit(0)
 	case "exit-from-signal":
 		exitFromSignal(signalByName(os.Getenv("SR_TEST_SIG")))
+	case "ignored-hup":
+		helperIgnoredHUP()
 	}
 }
 

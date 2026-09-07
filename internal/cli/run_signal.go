@@ -35,7 +35,9 @@ type SignalHandler struct {
 }
 
 // NewSignalHandler registers for sigs immediately, so no window exists
-// between creating the session and starting the child.
+// between creating the session and starting the child. A signal ignored on
+// entry (nohup, trap '' HUP) stays ignored: Notify would re-enable it and the
+// child, which inherited the ignore, would end up SIGKILLed after the escalation.
 func NewSignalHandler(cancelStartup context.CancelFunc, sigs ...os.Signal) *SignalHandler {
 	h := &SignalHandler{
 		ch:            make(chan os.Signal, 2), // room for a second signal during escalation
@@ -43,7 +45,15 @@ func NewSignalHandler(cancelStartup context.CancelFunc, sigs ...os.Signal) *Sign
 		escalateAfter: 5 * time.Second,
 		fired:         make(chan struct{}),
 	}
-	signal.Notify(h.ch, sigs...)
+	var wanted []os.Signal
+	for _, s := range sigs {
+		if !signal.Ignored(s) {
+			wanted = append(wanted, s)
+		}
+	}
+	if len(wanted) > 0 { // Notify with no signals would relay every signal
+		signal.Notify(h.ch, wanted...)
+	}
 	go h.loop()
 	return h
 }

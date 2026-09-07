@@ -5,8 +5,10 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -198,4 +200,60 @@ func TestHandler_AttachForwardsStartupSignal(t *testing.T) {
 	if code, _ := exitStatus(t, c.wait(t)); code != 42 {
 		t.Errorf("exit code = %d, want 42 (startup signal forwarded)", code)
 	}
+}
+
+// Under nohup (SIGHUP ignored on entry) the handler must leave SIGHUP alone:
+// the child inherited the ignore, so a forwarded SIGHUP would only lead to
+// SIGKILL. Other stop signals keep working. Runs via TestHelperProcess.
+func TestHandler_LeavesIgnoredSignalsAlone(t *testing.T) {
+	res := runHelper(t, true, "SR_TEST_HELPER=ignored-hup")
+	if res.code != 0 || res.sig != 0 {
+		t.Errorf("helper: code=%d sig=%v\n%s", res.code, res.sig, res.out)
+	}
+}
+
+func helperIgnoredHUP() {
+	fail := func(msg string) {
+		fmt.Println(msg)
+		os.Exit(1)
+	}
+	if !signal.Ignored(syscall.SIGHUP) {
+		fail("precondition: SIGHUP not ignored on entry")
+	}
+	cmd := exec.Command("bash", "-c", `while true; do sleep 0.1; done`)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		fail(err.Error())
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	var running atomic.Bool
+	running.Store(true)
+	killCancel := make(chan struct{})
+	_, cancel := context.WithCancel(context.Background())
+	h := NewSignalHandler(cancel, syscall.SIGHUP, syscall.SIGTERM)
+	h.escalateAfter = 300 * time.Millisecond
+	h.Attach(-cmd.Process.Pid, &running, killCancel)
+
+	if !signal.Ignored(syscall.SIGHUP) {
+		fail("handler re-enabled an ignored SIGHUP")
+	}
+	syscall.Kill(syscall.Getpid(), syscall.SIGHUP) // ignored: nothing may reach the child
+	select {
+	case err := <-done:
+		fail("child died after ignored SIGHUP: " + err.Error())
+	case <-time.After(time.Second):
+	}
+
+	syscall.Kill(syscall.Getpid(), syscall.SIGTERM) // still handled
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		fail("child still running after SIGTERM")
+	}
+	running.Store(false)
+	close(killCancel)
+	h.Stop()
+	os.Exit(0)
 }
