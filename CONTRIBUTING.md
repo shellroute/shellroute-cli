@@ -27,7 +27,7 @@ This runs: go vet, gofmt, build, unit tests (with race detector), public audit, 
 
 ## Optional live test
 
-`test-run-signal-live.sh` verifies that `shellroute run` forwards SIGTERM to the child process and ends the API session cleanly. It creates one real paid session and requires `--live`:
+`test-run-signal-live.sh` verifies that `shellroute run` forwards SIGTERM to the child process, ends the API session cleanly, and then exits by SIGTERM the way the child did. It creates one real paid session and requires `--live`:
 
 ```bash
 ./scripts/test-run-signal-live.sh --live [COUNTRY]

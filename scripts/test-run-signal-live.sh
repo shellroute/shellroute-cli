@@ -2,7 +2,9 @@
 set -uo pipefail
 
 # Live signal-handling test for shellroute run.
-# Creates one real (paid) session to verify SIGTERM forwarding and clean shutdown.
+# Creates one real (paid) session to verify that SIGTERM is forwarded to the
+# child, that shellroute then exits by SIGTERM like the child (what systemd
+# stop and shells expect), and that the session ends cleanly.
 #
 # Usage:
 #   ./scripts/test-run-signal-live.sh --live [COUNTRY]
@@ -117,12 +119,12 @@ echo "Auth: ok"
 echo ""
 echo "=== Running shellroute run $COUNTRY with signal test ==="
 
-# --- Child script: writes PGID, signals readiness, traps SIGTERM, exits 0 ---
+# --- Child script: writes PGID, signals readiness, reports SIGTERM, then dies by it ---
 CHILD_SCRIPT='
 pgid_file="$1"
 ready_file="$2"
 echo $$ > "$pgid_file"
-trap '"'"'echo CHILD_GOT_SIGTERM >&2; exit 0'"'"' TERM
+trap '"'"'echo CHILD_GOT_SIGTERM >&2; trap - TERM; kill -TERM $$'"'"' TERM
 touch "$ready_file"
 while true; do sleep 0.1; done
 '
@@ -194,12 +196,12 @@ show_output() {
 echo ""
 echo "=== Verification ==="
 
-# 1. Shellroute exited 0 (child exited 0 from trap)
-if [ "$SR_EXIT" -eq 0 ]; then
-    echo "  PASS: shellroute exited 0"
+# 1. Shellroute died by SIGTERM like its child (bash reports 128+15)
+if [ "$SR_EXIT" -eq 143 ]; then
+    echo "  PASS: shellroute exited by SIGTERM (143), mirroring the child"
     PASS=$((PASS + 1))
 else
-    echo "  FAIL: shellroute exited $SR_EXIT, want 0"
+    echo "  FAIL: shellroute exit status $SR_EXIT, want 143 (killed by SIGTERM)"
     FAIL=$((FAIL + 1))
     show_output
 fi
@@ -253,4 +255,4 @@ if [ $FAIL -gt 0 ]; then
 fi
 
 echo ""
-echo "Signal handling verified: SIGTERM → child forwarded → session ended cleanly."
+echo "Signal handling verified: SIGTERM → forwarded to child → session ended → shellroute exited by SIGTERM."
