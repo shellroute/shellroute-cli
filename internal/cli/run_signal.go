@@ -36,7 +36,7 @@ type SignalHandler struct {
 
 // NewSignalHandler registers for sigs immediately, so no window exists
 // between creating the session and starting the child. A signal ignored on
-// entry (nohup, trap '' HUP) stays ignored: Notify would re-enable it and the
+// entry (nohup, trap ” HUP) stays ignored: Notify would re-enable it and the
 // child, which inherited the ignore, would end up SIGKILLed after the escalation.
 func NewSignalHandler(cancelStartup context.CancelFunc, sigs ...os.Signal) *SignalHandler {
 	h := &SignalHandler{
