@@ -185,8 +185,10 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	// Tear down session — always called, even after signal
 	resp, stopErr := sess.Stop()
+	exitErr, _ := childErr.(*exec.ExitError)
 	if !runNoStat {
-		if childErr != nil {
+		// A signal death is reported by exiting the same way, not as a failure.
+		if childErr != nil && (exitErr == nil || childSignal(exitErr) == 0) {
 			display.Error("Command failed: %s", args[0])
 		}
 		if stopErr != nil {
@@ -199,13 +201,10 @@ func runRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if childErr != nil {
-		if exitErr, ok := childErr.(*exec.ExitError); ok {
-			os.Exit(exitErr.ExitCode())
-		}
-		return childErr
+	if exitErr != nil {
+		exitAsChild(exitErr)
 	}
-	return nil
+	return childErr
 }
 
 const defaultNoProxy = "localhost,127.0.0.1,::1"

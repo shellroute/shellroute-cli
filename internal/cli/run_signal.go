@@ -4,6 +4,7 @@ package cli
 
 import (
 	"os"
+	"os/exec"
 	"os/signal"
 	"sync/atomic"
 	"syscall"
@@ -59,4 +60,33 @@ func RunSignalHandler(cfg SignalHandlerConfig) func() {
 		signal.Stop(sigCh)
 		close(sigCh)
 	}
+}
+
+// childSignal returns the signal that terminated the child, or 0.
+func childSignal(err *exec.ExitError) syscall.Signal {
+	if ws, ok := err.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		return ws.Signal()
+	}
+	return 0
+}
+
+// exitAsChild ends the process the way the child ended: same exit code, or
+// the same signal, so shells and systemd see the real cause.
+func exitAsChild(err *exec.ExitError) {
+	if sig := childSignal(err); sig != 0 {
+		exitFromSignal(sig)
+	}
+	os.Exit(err.ExitCode())
+}
+
+// exitFromSignal re-raises sig on this process. Only stop signals and SIGKILL
+// are re-raised; the Go runtime turns others (SIGSEGV, SIGQUIT, ...) into a
+// crash dump. Falls back to the 128+n shell convention when sig is ignored.
+func exitFromSignal(sig syscall.Signal) {
+	switch sig {
+	case syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGKILL:
+		syscall.Kill(os.Getpid(), sig)
+		time.Sleep(250 * time.Millisecond)
+	}
+	os.Exit(128 + int(sig))
 }
