@@ -69,7 +69,7 @@ func (c *Controller) monitor(ctx context.Context) {
 					c.mu.Unlock()
 
 					// Re-detect exit IP — it may have changed after recovery
-					if ip := detectExitIP(sessPort); ip != "" {
+					if ip := detectExitIP(ctx, sessPort); ip != "" {
 						c.mu.Lock()
 						if c.sess != nil {
 							c.sess.SetExitIP(ip)
