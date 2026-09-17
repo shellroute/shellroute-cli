@@ -1,7 +1,7 @@
 {
   "name": "shellroute",
   "version": "0.0.0",
-  "description": "A proxied shell for terminal workflows. Open a session, choose a proxy, and run commands normally.",
+  "description": "Shellroute gives each shell its own proxy IP. Pick a country and use the terminal normally.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

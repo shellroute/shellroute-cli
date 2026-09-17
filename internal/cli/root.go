@@ -19,7 +19,7 @@ var (
 var rootCmd = &cobra.Command{
 	Use:           "shellroute",
 	Short:         "Residential proxy access from your terminal",
-	Long:          "ShellRoute — pay-per-use residential proxy access from your terminal.",
+	Long:          "Shellroute — pay-per-use residential proxy access from your terminal.",
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	CompletionOptions: cobra.CompletionOptions{
