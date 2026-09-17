@@ -1,4 +1,4 @@
-# Contributing to ShellRoute CLI
+# Contributing to Shellroute CLI
 
 ## Build from source
 

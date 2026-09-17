@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Suggest a feature for ShellRoute CLI
+about: Suggest a feature for Shellroute CLI
 labels: enhancement
 ---
 

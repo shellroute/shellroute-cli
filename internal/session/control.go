@@ -778,7 +778,7 @@ func (c *Controller) httpCountries(w http.ResponseWriter, r *http.Request) {
 	locs, err := c.client.GetLocations()
 	if err != nil {
 		w.WriteHeader(500)
-		fmt.Fprintln(w, "ERROR Cannot reach ShellRoute. Check your connection.")
+		fmt.Fprintln(w, "ERROR Cannot reach Shellroute. Check your connection.")
 		return
 	}
 
@@ -815,7 +815,7 @@ func (c *Controller) httpBalance(w http.ResponseWriter, r *http.Request) {
 	bal, err := c.client.GetBalance()
 	if err != nil {
 		w.WriteHeader(500)
-		fmt.Fprintln(w, "ERROR Cannot reach ShellRoute. Check your connection.")
+		fmt.Fprintln(w, "ERROR Cannot reach Shellroute. Check your connection.")
 		return
 	}
 	fmt.Fprintf(w, "  Account: %s\n", bal.Email)

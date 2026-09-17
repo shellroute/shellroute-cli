@@ -88,7 +88,7 @@ func runLoginRequestCode() error {
 			display.Error("%s", apiErr.UserMessage())
 			return err
 		}
-		display.Error("Cannot reach ShellRoute. Check your internet connection.")
+		display.Error("Cannot reach Shellroute. Check your internet connection.")
 		return err
 	}
 
@@ -164,7 +164,7 @@ func runLoginInteractive() error {
 			display.Error("%s", apiErr.UserMessage())
 			return err
 		}
-		display.Error("Cannot reach ShellRoute. Check your internet connection.")
+		display.Error("Cannot reach Shellroute. Check your internet connection.")
 		return err
 	}
 

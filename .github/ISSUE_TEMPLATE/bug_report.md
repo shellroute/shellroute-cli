@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug in ShellRoute CLI
+about: Report a bug in Shellroute CLI
 labels: bug
 ---
 
