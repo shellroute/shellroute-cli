@@ -1,6 +1,6 @@
 # shellroute
 
-A proxied shell for terminal workflows. Every terminal can be somewhere else.
+Shellroute gives each shell its own proxy IP. Pick a country and use the terminal normally.
 
 ## Install
 
