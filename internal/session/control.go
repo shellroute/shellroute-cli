@@ -58,7 +58,7 @@ func NewController(client *api.Client, cfg *config.Config) *Controller {
 	}
 }
 
-// ConnectDirect sets an already-started session (used by `shellroute connect`).
+// ConnectDirect sets an already-started session (used by `shellroute proxy`).
 func (c *Controller) ConnectDirect(sess *Session) {
 	c.wireUpstreamCallback(sess)
 	c.mu.Lock()

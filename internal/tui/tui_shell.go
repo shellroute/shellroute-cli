@@ -236,7 +236,7 @@ func writeHelpFunc(f *os.File) {
   echo "  shellroute reveal-key                         Print stored API key"
   echo "  shellroute run <country> -- <cmd>             Run a command through proxy"
   echo "  shellroute run --no-stat <country> -- <cmd>   Run without session summary"
-  echo "  shellroute connect --country <code>           Persistent proxy (Ctrl+C to stop)"
+  echo "  shellroute proxy --country <code>             Persistent proxy (Ctrl+C to stop)"
   echo "  shellroute balance                            Show credit balance"
   echo "  shellroute status                             Show session info"
   echo "  shellroute countries                          List available countries"
