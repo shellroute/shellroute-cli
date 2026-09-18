@@ -2,7 +2,9 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-**Every terminal can be somewhere else.** Open a proxied shell or route one command, then run your terminal workflow normally. Learn more at [shellroute.com](https://shellroute.com/).
+**Run terminal commands through a proxy.**
+
+Choose a country or city and route a shell session or a single command through a proxy. Your other apps and terminals keep their normal connection. Learn more at [shellroute.com](https://shellroute.com/).
 
 ## Install
 

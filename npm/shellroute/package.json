@@ -1,7 +1,7 @@
 {
   "name": "shellroute",
   "version": "0.0.0",
-  "description": "Shellroute gives each shell its own proxy IP. Pick a country and use the terminal normally.",
+  "description": "Choose a country or city and route a shell session or a single command through a proxy. Your other apps and terminals keep their normal connection.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
