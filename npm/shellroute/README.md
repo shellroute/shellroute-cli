@@ -1,6 +1,8 @@
 # shellroute
 
-Shellroute gives each shell its own proxy IP. Pick a country and use the terminal normally.
+**Run terminal commands through a proxy.**
+
+Choose a country or city and route a shell session or a single command through a proxy. Your other apps and terminals keep their normal connection.
 
 ## Install
 
