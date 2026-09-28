@@ -6,6 +6,8 @@
 
 Choose a country or city and route a shell session or a single command through a proxy. Your other apps and terminals keep their normal connection. Learn more at [shellroute.com](https://shellroute.com/).
 
+Need to reproduce country-specific behavior? Run the same command through another country while the rest of your machine keeps its normal connection.
+
 ## Install
 
 ```bash
@@ -45,7 +47,7 @@ curl https://ipinfo.io/json
 shellroute run DE -- curl https://ipinfo.io/json
 ```
 
-[Read the full quickstart](https://shellroute.com/docs/quickstart?utm_source=github&utm_medium=readme&utm_campaign=cli_readme).
+[Read the full quickstart](https://shellroute.com/docs/quickstart?utm_source=github&utm_medium=readme&utm_campaign=exp_ghconv_01).
 
 ## Commands
 
