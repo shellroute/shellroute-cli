@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -26,6 +27,41 @@ func TestEnvVarWorksWithNoConfigFile(t *testing.T) {
 	}
 	if !cfg.HasAuth() {
 		t.Error("HasAuth() should be true when SHELLROUTE_API_KEY is set")
+	}
+}
+
+func TestEnvVarWorksWithoutHomeDir(t *testing.T) {
+	// Bare containers and hardened CI images may run with no $HOME. The
+	// config directory cannot be resolved, but SHELLROUTE_API_KEY must work.
+	t.Setenv("HOME", "")
+	t.Setenv("SHELLROUTE_HOME", "")
+	t.Setenv("SHELLROUTE_API_KEY", "pk_ci_test")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.APIKey != "pk_ci_test" {
+		t.Errorf("APIKey = %q, want pk_ci_test (env var must work without $HOME)", cfg.APIKey)
+	}
+}
+
+func TestEnvVarWorksWhenConfigDirUncreatable(t *testing.T) {
+	// A config dir that cannot be created (here: nested under a regular file)
+	// is equivalent to no config file; Load must not fail.
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SHELLROUTE_HOME", filepath.Join(blocker, "sub"))
+	t.Setenv("SHELLROUTE_API_KEY", "pk_ci_test")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.APIKey != "pk_ci_test" {
+		t.Errorf("APIKey = %q, want pk_ci_test (env var must work when config dir is uncreatable)", cfg.APIKey)
 	}
 }
 
