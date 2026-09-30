@@ -93,21 +93,20 @@ func Path() (string, error) {
 // Load reads config from ~/.shellroute/config.toml. Returns defaults if file doesn't exist.
 func Load() (*Config, error) {
 	cfg := Default()
-	path, err := Path()
-	if err != nil {
-		return cfg, err
-	}
 
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return cfg, nil
-	}
-	if err != nil {
-		return cfg, fmt.Errorf("cannot read config: %w", err)
-	}
-
-	if err := toml.Unmarshal(data, cfg); err != nil {
-		return cfg, fmt.Errorf("cannot parse config: %w", err)
+	// The config file is optional. When its directory cannot be resolved or
+	// created (no $HOME, read-only home), proceed as if the file is absent so
+	// the env overrides below still apply. Commands that write config report
+	// the real error themselves.
+	if path, err := Path(); err == nil {
+		data, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			// No config file — defaults plus env overrides.
+		} else if err != nil {
+			return cfg, fmt.Errorf("cannot read config: %w", err)
+		} else if err := toml.Unmarshal(data, cfg); err != nil {
+			return cfg, fmt.Errorf("cannot parse config: %w", err)
+		}
 	}
 
 	// Apply defaults for zero values

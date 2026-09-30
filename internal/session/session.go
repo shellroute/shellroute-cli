@@ -265,7 +265,11 @@ func (s *Session) sessionFileName() string {
 func (s *Session) writeInfoFile() error {
 	dir, err := config.Dir()
 	if err != nil {
-		return err
+		// No usable config directory (no $HOME, read-only home): skip the
+		// bookkeeping file instead of failing the session. status and stop
+		// cannot see this session, which is already the case wherever the
+		// file cannot exist.
+		return nil
 	}
 
 	info := Info{

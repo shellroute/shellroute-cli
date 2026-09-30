@@ -1,9 +1,38 @@
 package session
 
 import (
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 )
+
+// --- Session info file ---
+
+// Without a usable config directory (no $HOME), the bookkeeping file is
+// skipped rather than failing the session — CI containers rely on this.
+func TestWriteInfoFile_SkipsWhenConfigDirUnavailable(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("SHELLROUTE_HOME", "")
+
+	s := &Session{ID: "sess-test", Country: "US"}
+	if err := s.writeInfoFile(); err != nil {
+		t.Fatalf("writeInfoFile() = %v, want nil when config dir is unavailable", err)
+	}
+}
+
+func TestWriteInfoFile_WritesWhenConfigDirAvailable(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("SHELLROUTE_HOME", dir)
+
+	s := &Session{ID: "sess-test", Country: "US"}
+	if err := s.writeInfoFile(); err != nil {
+		t.Fatalf("writeInfoFile() error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, s.sessionFileName())); err != nil {
+		t.Errorf("session file not written: %v", err)
+	}
+}
 
 // --- ExitIP thread safety ---
 
