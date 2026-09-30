@@ -100,13 +100,10 @@ func Load() (*Config, error) {
 
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return cfg, nil
-	}
-	if err != nil {
+		// No config file — use defaults; env overrides below still apply.
+	} else if err != nil {
 		return cfg, fmt.Errorf("cannot read config: %w", err)
-	}
-
-	if err := toml.Unmarshal(data, cfg); err != nil {
+	} else if err := toml.Unmarshal(data, cfg); err != nil {
 		return cfg, fmt.Errorf("cannot parse config: %w", err)
 	}
 

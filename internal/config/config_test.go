@@ -5,6 +5,30 @@ import (
 	"testing"
 )
 
+func TestEnvVarWorksWithNoConfigFile(t *testing.T) {
+	origKey := os.Getenv("SHELLROUTE_API_KEY")
+	origHome := os.Getenv("SHELLROUTE_HOME")
+	defer func() {
+		os.Setenv("SHELLROUTE_API_KEY", origKey)
+		os.Setenv("SHELLROUTE_HOME", origHome)
+	}()
+
+	// Point config dir at a temp dir with no config.toml
+	os.Setenv("SHELLROUTE_HOME", t.TempDir())
+	os.Setenv("SHELLROUTE_API_KEY", "pk_ci_test")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.APIKey != "pk_ci_test" {
+		t.Errorf("APIKey = %q, want pk_ci_test (env var must work without a config file)", cfg.APIKey)
+	}
+	if !cfg.HasAuth() {
+		t.Error("HasAuth() should be true when SHELLROUTE_API_KEY is set")
+	}
+}
+
 func TestEnvVarOverridesConfig(t *testing.T) {
 	// Save and restore env
 	origKey := os.Getenv("SHELLROUTE_API_KEY")
