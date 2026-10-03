@@ -6,7 +6,7 @@ set -euo pipefail
 # Patterns are constructed at runtime to avoid containing forbidden terms literally.
 
 FAIL=0
-SCAN_PATHS="internal/ cmd/ npm/ .github/ *.md"
+SCAN_PATHS="internal/ cmd/ npm/ skills/ .github/ *.md"
 EXCLUDE="--exclude-dir=.git --exclude-dir=dist --exclude=audit-public.sh"
 
 check() {
