@@ -2,10 +2,10 @@
 name: country-response-testing
 description: "Re-run the same HTTP check from another country with Shellroute and compare the response: status codes, redirects, localized content, or API fields. Use for country-dependent HTTP debugging, regional response checks, and repeated country comparisons. Not for browser GPS, non-HTTP traffic, or bypassing access controls."
 license: Apache-2.0
-compatibility: "Requires the Shellroute CLI on PATH, an authenticated Shellroute account with available credit, and explicit user approval before any metered routed run. Shellroute 0.1.5 requires a prior shellroute login on that machine. Browser tools such as Playwright and Puppeteer require explicit browser proxy configuration; wrapping the test command alone does not route browser traffic."
+compatibility: "Requires the Shellroute CLI on PATH, an authenticated Shellroute account with available credit, and explicit user approval before any metered routed run. Browser tools such as Playwright and Puppeteer require explicit browser proxy configuration; wrapping the test command alone does not route browser traffic."
 metadata:
   author: shellroute
-  version: "0.4.6"
+  version: "1.0.0"
 ---
 
 # Country response testing
@@ -18,8 +18,7 @@ Keep the user's request exactly the same and change only where it exits to the i
 2. **Sensitive arguments.** If the command carries credentials (`Authorization`, `Cookie`, basic auth, tokens in URLs), keep them out of anything you write back: report the compared field, never the full command or response. `scripts/dry-run.sh` does not print the command at all for this reason; do not paste it into your reply either.
 3. **CLI present:** `command -v shellroute`. If missing, point the user to https://shellroute.com/docs/quickstart — do not install software for them.
 4. **Authenticated:** `shellroute balance --format json >/dev/null` exits 0 when logged in (one API call, no session). If it fails, the user runs `shellroute login` themselves. Never ask the user to paste an API key into the chat, and never print one.
-5. **Version note:** `shellroute --version`. From **0.1.6**, `SHELLROUTE_API_KEY` works with no prior login. On **0.1.5** it is only honored after one `shellroute login` on that machine (a config file must exist). Do not work around that by copying or exposing the key.
-6. **Cost, stated up front.** Every `shellroute run` opens one metered session, billed on traffic with a per-session minimum. Count all of them — one per country, plus one per retry — tell the user the total, and get a yes before the first routed run. Exit verification rides inside the same session (step 7), so it opens no extra session; it does add a few bytes of billed traffic to that session.
+5. **Cost, stated up front.** Every `shellroute run` opens one metered session, billed on traffic with a per-session minimum. Count all of them — one per country, plus one per retry — tell the user the total, and get a yes before the first routed run. Exit verification rides inside the same session (step 7), so it opens no extra session; it does add a few bytes of billed traffic to that session.
 
 ## Procedure
 
@@ -71,7 +70,7 @@ Summary of the canonical matrix in the CLI repository (`docs/compatibility.md`, 
 
 | Output | Meaning | What to do |
 |---|---|---|
-| `Not authenticated. Run shellroute login or use --api-key.` | No credentials found. On 0.1.5 this also appears when only `SHELLROUTE_API_KEY` is set and no config file exists. | User runs `shellroute login`. |
+| `Not authenticated. Run shellroute login or use --api-key.` | No credentials found. | User runs `shellroute login`. |
 | `Invalid API key.` | Key rejected by the service. | User logs in again; the key was revoked or mistyped. |
 | `No residential IPs available in DE, Berlin` | No capacity for that country/city/type. | Drop the city, try another country, or `--iptype datacenter`. Each retry is a session. |
 | `Cannot reach Shellroute.` / `Cannot connect.` | Network or service problem. | Retry once; check the machine's own connection. |

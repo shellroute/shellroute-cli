@@ -102,10 +102,6 @@ if [ "$check" = 1 ]; then
   fi
   if ! shellroute balance --format json >/dev/null 2>&1; then
     echo "not authenticated: the user runs 'shellroute login' on this machine" >&2
-    version=$(shellroute --version 2>/dev/null | awk '{print $2}')
-    if [ -n "${SHELLROUTE_API_KEY:-}" ] && [ "${version:-0.1.5}" = "0.1.5" ]; then
-      echo "hint: shellroute 0.1.5 reads SHELLROUTE_API_KEY only after one prior login (a config file must exist)" >&2
-    fi
     exit 4
   fi
 fi

@@ -17,7 +17,7 @@ First, install and authenticate the Shellroute CLI:
 Then install the skill into your project:
 
 ```bash
-gh skill install shellroute/shellroute-cli country-response-testing --agent AGENT --scope project --pin skills-v0.4.6
+gh skill install shellroute/shellroute-cli country-response-testing --agent AGENT --scope project --pin skills-v1.0.0
 ```
 
 Replace `AGENT` with an agent name supported by the GitHub CLI installer. Common choices include:
@@ -29,7 +29,7 @@ Replace `AGENT` with an agent name supported by the GitHub CLI installer. Common
 - `gemini-cli`
 - `universal`
 
-Keep the `--pin skills-v0.4.6` argument in the install command.
+Keep the `--pin skills-v1.0.0` argument in the install command.
 
 The Shellroute CLI must be on `PATH`. In non-interactive environments, load `SHELLROUTE_API_KEY` from your secret store rather than putting credentials in prompts or source files.
 

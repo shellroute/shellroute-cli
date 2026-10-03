@@ -80,10 +80,7 @@ if [ "${1:-}" = "--live" ]; then
     out=$(SHELLROUTE_HOME=$(mktemp -d) bash ./dry-run.sh --check US 'curl -s https://ipinfo.io/country' 2>&1); rc=$?; API_CALLS=$((API_CALLS+1))
     [ "$rc" = 4 ] && ok "fresh machine, no key: exit 4" || bad "fresh machine, no key (exit $rc)" "$out"
     out=$(SHELLROUTE_HOME=$(mktemp -d) SHELLROUTE_API_KEY=pk_bogus bash ./dry-run.sh --check US 'curl -s https://ipinfo.io/country' 2>&1); rc=$?; API_CALLS=$((API_CALLS+1))
-    if [ "$rc" = 4 ]; then
-      if [ "$ver" = "0.1.5" ]; then printf '%s' "$out" | grep -q "hint:" && ok "bogus key on 0.1.5: exit 4 with login hint" || bad "bogus key on 0.1.5: hint missing" "$out"
-      else printf '%s' "$out" | grep -q "hint:" && bad "bogus key on $ver: stale 0.1.5 hint shown" "$out" || ok "bogus key on $ver: exit 4, no 0.1.5 hint"; fi
-    else bad "bogus key (exit $rc)" "$out"; fi
+    [ "$rc" = 4 ] && ok "bogus key: exit 4" || bad "bogus key (exit $rc)" "$out"
     out=$(PATH=/usr/bin:/bin bash ./dry-run.sh --check US 'curl -s https://example.com' 2>&1); rc=$?   # no API call: CLI absent
     [ "$rc" = 3 ] && ok "shellroute missing: exit 3 (no API call)" || bad "missing-CLI case (exit $rc)" "$out"
     echo "  API calls made: $API_CALLS"
