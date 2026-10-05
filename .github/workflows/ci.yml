@@ -20,3 +20,28 @@ jobs:
       - run: GOOS=darwin GOARCH=arm64 go build ./cmd/shellroute
       - run: GOOS=darwin GOARCH=amd64 go build ./cmd/shellroute
       - run: GOOS=linux GOARCH=arm64 go build ./cmd/shellroute
+
+  skills:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Skill offline suite
+        run: bash skills/country-response-testing/scripts/tests.sh
+      - name: Skill frontmatter
+        run: |
+          python3 - <<'PY'
+          import re, pathlib
+          p = pathlib.Path("skills/country-response-testing/SKILL.md")
+          m = re.match(r"---\n(.*?)\n---\n(.+)", p.read_text(), re.S)
+          assert m, "no frontmatter"
+          fm, body = m.group(1), m.group(2)
+          def field(k):
+              r = re.search(rf"^{k}:\s*(.+?)\s*$", fm, re.M)
+              return r.group(1).strip("\"'") if r else None
+          assert field("name") == p.parent.name, "name must equal the directory name"
+          assert re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", field("name")), "name charset"
+          assert len(field("description")) <= 1024, "description too long"
+          assert field("license"), "license missing"
+          assert body.strip(), "empty body"
+          print("skill frontmatter ok")
+          PY
