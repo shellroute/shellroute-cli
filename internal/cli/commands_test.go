@@ -350,7 +350,7 @@ func TestRevealKeyRegistered(t *testing.T) {
 // --- command existence ---
 
 func TestAllCommandsRegistered(t *testing.T) {
-	expected := []string{"login", "logout", "proxy", "status", "balance", "countries", "cities", "run", "reveal-key"}
+	expected := []string{"login", "logout", "proxy", "status", "balance", "countries", "cities", "run", "reveal-key", "upstream"}
 	commands := make(map[string]bool)
 	for _, cmd := range rootCmd.Commands() {
 		commands[cmd.Name()] = true
@@ -959,6 +959,7 @@ func TestNoUnexpectedCommands(t *testing.T) {
 		"login": true, "logout": true, "proxy": true,
 		"status": true, "balance": true, "countries": true, "cities": true,
 		"run": true, "reveal-key": true, "help": true, "completion": true,
+		"upstream": true,
 	}
 	for _, cmd := range rootCmd.Commands() {
 		if !allowed[cmd.Name()] {
@@ -971,6 +972,14 @@ func TestNoUnexpectedCommands(t *testing.T) {
 	for _, sub := range connectCmd.Commands() {
 		if !allowedProxySubs[sub.Name()] {
 			t.Errorf("unexpected proxy subcommand %q", sub.Name())
+		}
+	}
+
+	// Check upstream subcommands
+	allowedUpstreamSubs := map[string]bool{"add": true, "list": true, "remove": true, "test": true}
+	for _, sub := range upstreamCmd.Commands() {
+		if !allowedUpstreamSubs[sub.Name()] {
+			t.Errorf("unexpected upstream subcommand %q", sub.Name())
 		}
 	}
 }

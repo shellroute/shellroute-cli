@@ -29,14 +29,19 @@ var (
 )
 
 var runCmd = &cobra.Command{
-	Use:   "run [country] [flags] -- <command> [args...]",
+	Use:   "run [country|upstream] [flags] -- <command> [args...]",
 	Short: "Run a command through the proxy",
 	Long: `Creates a proxy session, runs the command with HTTP_PROXY/HTTPS_PROXY set, then tears down.
 
 Examples:
   shellroute run US -- curl https://httpbin.org/ip
   shellroute run --country DE -- python scraper.py
-  shellroute run GB -- wget https://example.com`,
+  shellroute run GB -- wget https://example.com
+
+Your own proxy (no account needed):
+  shellroute run work -- curl https://httpbin.org/ip          # saved with 'shellroute upstream add'
+  shellroute run --proxy socks5://127.0.0.1:1080 -- curl https://httpbin.org/ip
+  SHELLROUTE_PROXY=http://user:pass@proxy:8080 shellroute run -- curl https://httpbin.org/ip`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runRun,
 }
@@ -48,6 +53,8 @@ func init() {
 	f.StringVar(&runIPType, "iptype", "", "IP type: residential (default), datacenter, or mix")
 	f.BoolVar(&runSticky, "sticky", false, "Keep same IP on reconnect")
 	f.BoolVar(&runNoStat, "no-stat", false, "Suppress session summary (clean output)")
+	f.StringVar(&runProxyURL, "proxy", "", "Route through your own proxy URL (http, https, socks5, socks5h)")
+	f.BoolVar(&runNoCheck, "no-check", false, "Own proxy: skip the exit IP check")
 }
 
 func runRun(cmd *cobra.Command, args []string) error {
@@ -55,30 +62,30 @@ func runRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	target, args, err := resolveRunTarget(cfg, args, cmd.ArgsLenAtDash(), runProxyURL, runCountry, os.Getenv(envProxyVar))
+	if err == errCountryRequired {
+		display.Error("Country required. Use: shellroute run US -- <command>")
+		return fmt.Errorf("country required")
+	}
+	if err != nil {
+		return err
+	}
+	if len(args) == 0 {
+		display.Error("Command required after --. Use: shellroute run %s -- <command>", target.describeOrCountry())
+		return fmt.Errorf("command required")
+	}
+
+	if target.own() {
+		return runOwn(cfg, target, args)
+	}
+
 	if !cfg.HasAuth() {
 		display.Error("Not authenticated. Run `shellroute login` or use `--api-key`.")
 		return fmt.Errorf("not authenticated")
 	}
 
-	country := runCountry
-	// If first arg looks like a country code (2 letters, all alpha), use it
-	if country == "" && len(args) >= 1 && len(args[0]) == 2 && isAlpha(args[0]) {
-		country = args[0]
-		args = args[1:]
-	}
-	if country == "" {
-		country = cfg.DefaultCountry
-	}
-	if country == "" {
-		display.Error("Country required. Use: shellroute run US -- <command>")
-		return fmt.Errorf("country required")
-	}
-	if len(args) == 0 {
-		display.Error("Command required after --. Use: shellroute run %s -- <command>", country)
-		return fmt.Errorf("command required")
-	}
-	country = config.NormalizeCountry(country)
-
+	country := config.NormalizeCountry(target.country)
 	if err := config.ValidateCountry(country); err != nil {
 		display.Error("%s", err)
 		return err
@@ -142,8 +149,53 @@ func runRun(cmd *cobra.Command, args []string) error {
 	// detectExitIPRetry already verified the tunnel passes traffic (got an exit IP).
 	// No need for a second route health check — it just adds a failure window
 	// where the tunnel can die between the two checks, causing spurious failures.
+	return execChild(sess, sigs, args)
+}
 
-	// Run the child command with proxy env vars
+// describeOrCountry names the target for usage messages.
+func (t runTarget) describeOrCountry() string {
+	if t.own() {
+		return t.describe()
+	}
+	return t.country
+}
+
+// runOwn routes the command through the user's own proxy: no account, no API
+// call, no billing. The child sees the same local proxy as a hosted route.
+func runOwn(cfg *config.Config, target runTarget, args []string) error {
+	port := runPort
+	if port == 0 {
+		port = cfg.DefaultPort
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	sigs := NewSignalHandler(cancel, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+
+	sess, err := session.StartOwn(ctx, target.upstream, target.name, target.label, port,
+		session.StartOpts{TrackRelays: true, Mode: "run", SkipExitIP: runNoCheck})
+	if err != nil {
+		sigs.Stop()
+		return reportOwnStartError(target, err)
+	}
+
+	if sig := sigs.StartupSignal(); sig != 0 {
+		sigs.Stop()
+		endRunSession(sess)
+		exitFromSignal(sig)
+	}
+
+	if !runNoStat {
+		display.Info("%s", viaLine(sess))
+		if sess.ProbeWarning != "" {
+			display.Warn("Exit IP unknown (%s). Continuing.", sess.ProbeWarning)
+		}
+	}
+	return execChild(sess, sigs, args)
+}
+
+// execChild runs the command with the proxy environment, kills it if the
+// upstream dies, and exits the way the child exited.
+func execChild(sess *session.Session, sigs *SignalHandler, args []string) error {
 	childCmd := exec.Command(args[0], args[1:]...)
 	childCmd.Stdin = os.Stdin
 	childCmd.Stdout = os.Stdout
@@ -203,6 +255,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 }
 
 // endRunSession ends the session and prints the summary unless --no-stat.
+// An own route has nothing to bill: duration and bytes only.
 func endRunSession(sess *session.Session) {
 	resp, err := sess.Stop()
 	if runNoStat {
@@ -210,6 +263,10 @@ func endRunSession(sess *session.Session) {
 	}
 	if err != nil {
 		display.Error("Failed to end session. Try again.")
+		return
+	}
+	if sess.Own {
+		display.OwnSessionSummary("shellroute session ended.", resp.DurationSec, resp.BytesTotal)
 		return
 	}
 	display.SessionSummary("shellroute session ended.", resp.DurationSec, resp.BytesTotal, resp.CostUSD, resp.BalanceUSD)
