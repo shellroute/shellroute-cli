@@ -268,6 +268,41 @@ func TestSOCKS5Upstream_TargetRefusedIsProxyStatus(t *testing.T) {
 	}
 }
 
+func TestSOCKS5Upstream_RulesetRefusalAfterAuthHintsAtPassword(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				buf := make([]byte, 64)
+				c.Read(buf)                                               // greeting
+				c.Write([]byte{0x05, 0x02})                               // choose user/pass
+				c.Read(buf)                                               // credentials
+				c.Write([]byte{0x01, 0x00})                               // "accepted"
+				c.Read(buf)                                               // CONNECT
+				c.Write([]byte{0x05, 0x02, 0x00, 0x01, 0, 0, 0, 0, 0, 0}) // not allowed by ruleset
+			}(conn)
+		}
+	}()
+	up := NewSOCKS5Upstream(ln.Addr().String(), "alice", "wrong", "label")
+	_, err = up.DialTarget(context.Background(), "example.com:443")
+	de := dialErr(t, err)
+	if de.Kind != KindProxyStatus || de.Status != 2 {
+		t.Fatalf("kind %d status %d", de.Kind, de.Status)
+	}
+	if !strings.Contains(Cause(err), "check the username and password") {
+		t.Errorf("Cause = %q", Cause(err))
+	}
+}
+
 func TestSOCKS5Upstream_NotASOCKSServer(t *testing.T) {
 	// A server that answers every byte stream with HTTP text.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

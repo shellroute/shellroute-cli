@@ -21,6 +21,17 @@ jobs:
       - run: GOOS=darwin GOARCH=amd64 go build ./cmd/shellroute
       - run: GOOS=linux GOARCH=arm64 go build ./cmd/shellroute
 
+  upstreams:
+    # Layer 2 of the bring-your-own-proxy test plan: real proxy software in Docker.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Proxy software in Docker (3proxy, gost, squid, ssh -D)
+        run: bash scripts/test-upstreams.sh
+
   skills:
     runs-on: ubuntu-latest
     steps:

@@ -18,6 +18,8 @@ https_proxy
 
 A tool is routed only when it reads and uses these variables, or when it is explicitly configured to use the local proxy. Shellroute does not intercept arbitrary TCP, UDP, DNS, or raw-socket traffic.
 
+The matrix applies to both route kinds: the hosted routes and [your own proxy](bring-your-own-proxy.md). The child side is identical; only where the local proxy forwards to differs.
+
 ## Matrix
 
 Tested on macOS 26.4 (darwin/arm64). Non-Node rows tested 2026-07-27 with shellroute 0.1.0. Node rows tested 2026-08-11 with unreleased build (post-0.1.0). Each tested row verified: command exit code 0, exit IP differs from direct control, exit country = US, session ended cleanly.

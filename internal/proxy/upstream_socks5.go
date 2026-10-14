@@ -129,7 +129,13 @@ func (u *SOCKS5Upstream) handshake(conn net.Conn, host string, port int) error {
 		return &DialError{Kind: KindHandshake, Msg: "not a SOCKS5 proxy"}
 	}
 	if head[1] != 0x00 {
-		return &DialError{Kind: KindProxyStatus, Status: int(head[1]), Msg: socksReplyText(head[1])}
+		msg := socksReplyText(head[1])
+		if head[1] == 0x02 && wantAuth {
+			// Some servers accept the credentials exchange and refuse at the
+			// request instead when the password is wrong.
+			msg += " (check the username and password)"
+		}
+		return &DialError{Kind: KindProxyStatus, Status: int(head[1]), Msg: msg}
 	}
 
 	// Skip the bound address and port.

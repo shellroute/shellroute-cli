@@ -67,6 +67,8 @@ shellroute run DE -- curl https://ipinfo.io/json
 | `shellroute run <country> -- <cmd>` | Run one command through the proxy |
 | `shellroute proxy --country <code>` | Persistent proxy (blocks until Ctrl+C) |
 | `shellroute proxy stop` | Stop running proxy sessions |
+| `shellroute run <upstream> -- <cmd>` | Run one command through your own proxy |
+| `shellroute upstream add\|list\|remove\|test` | Manage your own proxies |
 
 #### Local proxy mode
 
@@ -78,6 +80,20 @@ shellroute proxy --country US
 # In another terminal
 curl -x http://127.0.0.1:41900 https://ipinfo.io/ip
 ```
+
+### Use your own proxy
+
+Already pay a proxy provider, or run one? Save it and use its name wherever a country goes. No account needed.
+
+```bash
+shellroute upstream add work http://user:pass@proxy.example.com:8080 --country DE
+shellroute upstream test work                     # via work · exit IP 91.198.0.12 (DE) · 212 ms
+shellroute run work -- curl https://ipinfo.io/json
+shellroute proxy --upstream work
+shellroute run --proxy socks5://127.0.0.1:1080 -- curl https://ipinfo.io/json
+```
+
+The command only ever sees the local proxy on `127.0.0.1`, so your proxy's credentials never reach it, your shell history or your CI logs. `http`, `https`, `socks5` and `socks5h` proxies work. [Details.](docs/bring-your-own-proxy.md)
 
 ### Info
 
