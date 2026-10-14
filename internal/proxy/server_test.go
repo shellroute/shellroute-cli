@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"net"
 	"strings"
 	"sync"
@@ -42,27 +43,32 @@ func fakeGateway(t *testing.T, response string) (string, func()) {
 	return ln.Addr().String(), func() { ln.Close() }
 }
 
+// hostedServer builds a Server over a hosted gateway at gwAddr, as session.Start does.
+func hostedServer(gwAddr string) *Server {
+	return NewServer(&Config{
+		Upstream: NewHostedUpstream(gwAddr, false, "test-token"),
+		Meter:    meter.New(),
+	})
+}
+
 func TestDialAndSendConnect_ParsesExitIPHeader(t *testing.T) {
 	gwAddr, cleanup := fakeGateway(t, "HTTP/1.1 200 OK\r\nX-Exit-IP: 5.6.7.8\r\n\r\n")
 	defer cleanup()
 
 	var got string
 	var mu sync.Mutex
-	s := &Server{
-		gatewayAddr: gwAddr,
-
-		OnExitIPChanged: func(ip string) {
-			mu.Lock()
-			got = ip
-			mu.Unlock()
-		},
+	s := hostedServer(gwAddr)
+	s.OnExitIPChanged = func(ip string) {
+		mu.Lock()
+		got = ip
+		mu.Unlock()
 	}
 
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
 
-	result := s.dialAndSendConnect(server, "example.com:443")
+	result := s.dialAndSendConnect(context.Background(), server, "example.com:443")
 	if result == nil {
 		t.Fatal("dialAndSendConnect returned nil — gateway should have returned 200")
 	}
@@ -80,19 +86,16 @@ func TestDialAndSendConnect_NoHeaderNoCallback(t *testing.T) {
 	defer cleanup()
 
 	called := false
-	s := &Server{
-		gatewayAddr: gwAddr,
-
-		OnExitIPChanged: func(ip string) {
-			called = true
-		},
+	s := hostedServer(gwAddr)
+	s.OnExitIPChanged = func(ip string) {
+		called = true
 	}
 
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
 
-	result := s.dialAndSendConnect(server, "example.com:443")
+	result := s.dialAndSendConnect(context.Background(), server, "example.com:443")
 	if result == nil {
 		t.Fatal("dialAndSendConnect returned nil")
 	}
@@ -140,20 +143,17 @@ func TestDialAndSendConnect_IPChangeMidSession(t *testing.T) {
 
 	var receivedIPs []string
 	var ipMu sync.Mutex
-	s := &Server{
-		gatewayAddr: ln.Addr().String(),
-
-		OnExitIPChanged: func(ip string) {
-			ipMu.Lock()
-			receivedIPs = append(receivedIPs, ip)
-			ipMu.Unlock()
-		},
+	s := hostedServer(ln.Addr().String())
+	s.OnExitIPChanged = func(ip string) {
+		ipMu.Lock()
+		receivedIPs = append(receivedIPs, ip)
+		ipMu.Unlock()
 	}
 
 	// First connect
 	c1, s1 := net.Pipe()
 	defer c1.Close()
-	r1 := s.dialAndSendConnect(s1, "example.com:443")
+	r1 := s.dialAndSendConnect(context.Background(), s1, "example.com:443")
 	s1.Close()
 	if r1 != nil {
 		r1.Close()
@@ -162,7 +162,7 @@ func TestDialAndSendConnect_IPChangeMidSession(t *testing.T) {
 	// Second connect — different IP
 	c2, s2 := net.Pipe()
 	defer c2.Close()
-	r2 := s.dialAndSendConnect(s2, "example.com:443")
+	r2 := s.dialAndSendConnect(context.Background(), s2, "example.com:443")
 	s2.Close()
 	if r2 != nil {
 		r2.Close()
@@ -185,18 +185,14 @@ func TestDialAndSendConnect_NilCallbackDoesNotPanic(t *testing.T) {
 	gwAddr, cleanup := fakeGateway(t, "HTTP/1.1 200 OK\r\nX-Exit-IP: 9.9.9.9\r\n\r\n")
 	defer cleanup()
 
-	s := &Server{
-		gatewayAddr: gwAddr,
-
-		OnExitIPChanged: nil, // not set
-	}
+	s := hostedServer(gwAddr)
 
 	client, server := net.Pipe()
 	defer client.Close()
 	defer server.Close()
 
 	// Should not panic
-	result := s.dialAndSendConnect(server, "example.com:443")
+	result := s.dialAndSendConnect(context.Background(), server, "example.com:443")
 	if result != nil {
 		result.Close()
 	}
@@ -208,12 +204,9 @@ func TestDialAndSendConnect_NonOKDoesNotKillRoute(t *testing.T) {
 	defer cleanup()
 
 	deadCalled := false
-	s := &Server{
-		gatewayAddr: gwAddr,
-
-		OnUpstreamDead: func(reason string) {
-			deadCalled = true
-		},
+	s := hostedServer(gwAddr)
+	s.OnUpstreamDead = func(reason string) {
+		deadCalled = true
 	}
 
 	client, server := net.Pipe()
@@ -228,7 +221,7 @@ func TestDialAndSendConnect_NonOKDoesNotKillRoute(t *testing.T) {
 		}
 	}()
 
-	result := s.dialAndSendConnect(server, "example.com:443")
+	result := s.dialAndSendConnect(context.Background(), server, "example.com:443")
 	server.Close()
 	if result != nil {
 		t.Error("502 should return nil connection")
@@ -244,12 +237,9 @@ func TestDialAndSendConnect_402TriggersDepleted(t *testing.T) {
 	defer cleanup()
 
 	var reason string
-	s := &Server{
-		gatewayAddr: gwAddr,
-
-		OnUpstreamDead: func(r string) {
-			reason = r
-		},
+	s := hostedServer(gwAddr)
+	s.OnUpstreamDead = func(r string) {
+		reason = r
 	}
 
 	client, server := net.Pipe()
@@ -263,7 +253,7 @@ func TestDialAndSendConnect_402TriggersDepleted(t *testing.T) {
 		}
 	}()
 
-	result := s.dialAndSendConnect(server, "example.com:443")
+	result := s.dialAndSendConnect(context.Background(), server, "example.com:443")
 	server.Close()
 	if result != nil {
 		t.Error("402 should return nil")
@@ -277,12 +267,9 @@ func TestDialAndSendConnect_402TriggersDepleted(t *testing.T) {
 func TestDialAndSendConnect_DialFailureDoesNotKillRoute(t *testing.T) {
 	// Gateway unreachable — should NOT trigger OnUpstreamDead (transient)
 	deadCalled := false
-	s := &Server{
-		gatewayAddr: "127.0.0.1:1", // nothing listening
-
-		OnUpstreamDead: func(r string) {
-			deadCalled = true
-		},
+	s := hostedServer("127.0.0.1:1")
+	s.OnUpstreamDead = func(r string) {
+		deadCalled = true
 	}
 
 	client, server := net.Pipe()
@@ -296,7 +283,7 @@ func TestDialAndSendConnect_DialFailureDoesNotKillRoute(t *testing.T) {
 		}
 	}()
 
-	result := s.dialAndSendConnect(server, "example.com:443")
+	result := s.dialAndSendConnect(context.Background(), server, "example.com:443")
 	server.Close()
 	if result != nil {
 		t.Error("dial failure should return nil")

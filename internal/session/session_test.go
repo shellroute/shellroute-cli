@@ -1,6 +1,7 @@
 package session
 
 import (
+	"github.com/shellroute/shellroute-cli/internal/proxy"
 	"os"
 	"path/filepath"
 	"sync"
@@ -86,12 +87,12 @@ func TestGetExitIP_ReturnsSetValue(t *testing.T) {
 // --- IP detection endpoints ---
 
 func TestIPDetectEndpoints_HasFallback(t *testing.T) {
-	if len(ipDetectEndpoints) < 2 {
-		t.Errorf("expected at least 2 IP detection endpoints, got %d", len(ipDetectEndpoints))
+	if len(proxy.ExitIPEndpoints) < 2 {
+		t.Errorf("expected at least 2 IP detection endpoints, got %d", len(proxy.ExitIPEndpoints))
 	}
 	// First should be ipinfo.io (primary)
-	if ipDetectEndpoints[0] != "https://ipinfo.io/ip" {
-		t.Errorf("first endpoint should be ipinfo.io, got %q", ipDetectEndpoints[0])
+	if proxy.ExitIPEndpoints[0] != "https://ipinfo.io/ip" {
+		t.Errorf("first endpoint should be ipinfo.io, got %q", proxy.ExitIPEndpoints[0])
 	}
 }
 

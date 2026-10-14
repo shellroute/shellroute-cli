@@ -34,6 +34,14 @@ type Session struct {
 	BalanceUSD float64
 	LowBalance bool
 
+	// Own is set when the route is the user's own proxy: no API calls, no
+	// billing, Country holds the user's label.
+	Own          bool
+	UpstreamName string // saved upstream name, "" for an ad-hoc URL
+	Via          string // redacted upstream description for status output
+	ProbeWarning string // set when the tunnel opened but no exit IP could be read
+	ConnectMs    int    // time to the first successful exit IP probe (own sessions)
+
 	exitIPMu sync.Mutex
 	exitIP   string
 
@@ -42,7 +50,7 @@ type Session struct {
 	proxy  *proxy.Server
 	cancel context.CancelFunc
 
-	OnUpstreamDead func(reason string) // "depleted" or "connection_failed"
+	OnUpstreamDead func(reason string) // "depleted", "auth_invalid" or "connection_failed"
 	OnExitIPUpdate func(ip string)     // called by proxy when X-Exit-IP changes
 	OnRelayDone    func()              // called after each relay ends
 }
@@ -71,28 +79,26 @@ type Info struct {
 	ExitIP    string `json:"exit_ip"`
 	Port      int    `json:"port"`
 	StartTime string `json:"start_time"`
-	Mode      string `json:"mode,omitempty"` // "proxy", "run", or "" (interactive)
+	Mode      string `json:"mode,omitempty"`     // "proxy", "run", or "" (interactive)
+	Upstream  string `json:"upstream,omitempty"` // own route: saved upstream name
+	Via       string `json:"via,omitempty"`      // own route: redacted upstream description
 }
 
-// StartOpts holds optional parameters for Start.
+// StartOpts holds optional parameters for Start and StartOwn.
 type StartOpts struct {
 	TrackRelays    bool          // true for run mode — enables force-close of active relay conns
 	ConnectTimeout time.Duration // override exit IP detection timeout (default 45s)
 	Mode           string        // "proxy", "run", or "" (interactive)
+	SkipExitIP     bool          // own routes: do not probe the exit IP
 }
 
 // Start creates a new session via the API and starts the local proxy.
 func Start(ctx context.Context, client *api.Client, req *api.SessionCreateRequest, port int, opts ...StartOpts) (*Session, error) {
 	// Bind port before API call — fail fast if port unavailable
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
-	if err != nil && port != 0 {
-		ln, err = net.Listen("tcp", "127.0.0.1:0")
-	}
+	port, err := reservePort(port)
 	if err != nil {
-		return nil, fmt.Errorf("no available port: %w", err)
+		return nil, err
 	}
-	port = ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
 
 	resp, err := client.CreateSession(req)
 	if err != nil {
@@ -106,35 +112,38 @@ func Start(ctx context.Context, client *api.Client, req *api.SessionCreateReques
 	return startWithResponse(ctx, client, resp, port, sOpts)
 }
 
-// startWithResponse is the shared implementation for session start.
+// reservePort checks that port is free and returns it, falling back to any
+// free port when the requested one is taken. 0 means any free port.
+func reservePort(port int) (int, error) {
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil && port != 0 {
+		ln, err = net.Listen("tcp", "127.0.0.1:0")
+	}
+	if err != nil {
+		return 0, fmt.Errorf("no available port: %w", err)
+	}
+	port = ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+	return port, nil
+}
+
+// startWithResponse is the shared implementation for hosted session start.
 func startWithResponse(ctx context.Context, client *api.Client, resp *api.SessionCreateResponse, port int, opts StartOpts) (*Session, error) {
-	// If port not yet bound, bind now
-	if port == 0 {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			return nil, fmt.Errorf("no available port: %w", err)
-		}
-		port = ln.Addr().(*net.TCPAddr).Port
-		ln.Close()
-	} else {
-		// Verify port is available (Start already closed its listener)
-		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
-		if err != nil {
-			ln, err = net.Listen("tcp", "127.0.0.1:0")
-			if err != nil {
-				return nil, fmt.Errorf("no available port: %w", err)
-			}
-			port = ln.Addr().(*net.TCPAddr).Port
-		}
-		ln.Close()
+	// Re-check the port: the API call took time and another process may
+	// have taken it. Start already closed its listener.
+	port, err := reservePort(port)
+	if err != nil {
+		return nil, err
 	}
 
 	m := meter.New()
 	proxyServer := proxy.NewServer(&proxy.Config{
-		ListenPort:  port,
-		GatewayAddr: resp.Gateway.Endpoint,
-		GatewayTLS:  gatewayNeedsTLS(resp.Gateway.Endpoint),
-		Token:       resp.Gateway.Token,
+		ListenPort: port,
+		Upstream: proxy.NewHostedUpstream(
+			resp.Gateway.Endpoint,
+			gatewayNeedsTLS(resp.Gateway.Endpoint),
+			resp.Gateway.Token,
+		),
 		Meter:       m,
 		ByteBudget:  resp.ByteBudget,
 		TrackRelays: opts.TrackRelays,
@@ -159,26 +168,7 @@ func startWithResponse(ctx context.Context, client *api.Client, resp *api.Sessio
 		proxy:      proxyServer,
 		cancel:     cancel,
 	}
-
-	// Wire callbacks
-	proxyServer.OnUpstreamDead = func(reason string) {
-		if s.OnUpstreamDead != nil {
-			s.OnUpstreamDead(reason)
-		}
-	}
-	proxyServer.OnExitIPChanged = func(ip string) {
-		if s.OnExitIPUpdate != nil {
-			s.OnExitIPUpdate(ip)
-		} else {
-			s.SetExitIP(ip)
-		}
-	}
-
-	proxyServer.OnRelayDone = func() {
-		if s.OnRelayDone != nil {
-			s.OnRelayDone()
-		}
-	}
+	s.wireProxy()
 
 	if err := s.writeInfoFile(); err != nil {
 		cancel()
@@ -216,10 +206,120 @@ func startWithResponse(ctx context.Context, client *api.Client, resp *api.Sessio
 	return s, nil
 }
 
+// StartOwn starts the local proxy over the user's own upstream. No account,
+// no API call, no billing. name is the saved upstream name ("" for an ad-hoc
+// URL); label is the user's country label for display, which Shellroute
+// cannot verify.
+//
+// Unless opts.SkipExitIP is set, the upstream is checked first: one tunnel
+// attempt and one retry, each bounded by the dial timeout. A tunnel failure
+// returns the *proxy.DialError; when the tunnel opened but no exit IP could be
+// read, the session starts and ProbeWarning says why.
+func StartOwn(ctx context.Context, up proxy.Upstream, name, label string, port int, opts StartOpts) (*Session, error) {
+	port, err := reservePort(port)
+	if err != nil {
+		return nil, err
+	}
+
+	m := meter.New()
+	proxyServer := proxy.NewServer(&proxy.Config{
+		ListenPort:       port,
+		Upstream:         up,
+		Meter:            m,
+		ByteBudget:       -1,
+		TrackRelays:      opts.TrackRelays,
+		FailureThreshold: proxy.OwnFailureThreshold,
+	})
+
+	ctx, cancel := context.WithCancel(ctx)
+
+	id := name
+	if id == "" {
+		id = "url"
+	}
+	s := &Session{
+		ID:           "own-" + id,
+		Country:      label,
+		Mode:         opts.Mode,
+		Own:          true,
+		UpstreamName: name,
+		Via:          up.Describe(),
+		Port:         port,
+		StartTime:    time.Now(),
+		meter:        m,
+		proxy:        proxyServer,
+		cancel:       cancel,
+	}
+	s.wireProxy()
+
+	if err := s.writeInfoFile(); err != nil {
+		cancel()
+		return nil, fmt.Errorf("write session file: %w", err)
+	}
+
+	go func() {
+		if err := proxyServer.Start(ctx); err != nil {
+			_ = err
+			s.removeInfoFile()
+		}
+	}()
+
+	if !opts.SkipExitIP {
+		res, err := proxy.Check(ctx, up)
+		switch {
+		case err == nil:
+			s.SetExitIP(res.ExitIP)
+			s.ConnectMs = int(res.Latency.Milliseconds())
+		case proxy.TunnelFailed(err):
+			cancel()
+			s.removeInfoFile()
+			return nil, err
+		default:
+			s.ProbeWarning = err.Error()
+		}
+	}
+
+	return s, nil
+}
+
+// wireProxy forwards proxy callbacks to the session's own hooks.
+func (s *Session) wireProxy() {
+	s.proxy.OnUpstreamDead = func(reason string) {
+		if s.OnUpstreamDead != nil {
+			s.OnUpstreamDead(reason)
+		}
+	}
+	s.proxy.OnExitIPChanged = func(ip string) {
+		if s.OnExitIPUpdate != nil {
+			s.OnExitIPUpdate(ip)
+		} else {
+			s.SetExitIP(ip)
+		}
+	}
+	s.proxy.OnRelayDone = func() {
+		if s.OnRelayDone != nil {
+			s.OnRelayDone()
+		}
+	}
+}
+
 // Stop gracefully shuts down the session.
-// Does NOT report usage — gateway is the authoritative meter.
+// Does NOT report usage — gateway is the authoritative meter. Own sessions
+// have no server side; they return duration and bytes only.
 func (s *Session) Stop() (*api.SessionEndResponse, error) {
 	s.cancel()
+
+	if s.Own {
+		s.removeInfoFile()
+		resp := &api.SessionEndResponse{
+			SessionID:   s.ID,
+			DurationSec: int(s.Duration().Seconds()),
+		}
+		if s.meter != nil {
+			resp.BytesTotal = s.meter.BytesTotal()
+		}
+		return resp, nil
+	}
 
 	// End session with backend (triggers outbox cleanup + min charge)
 	resp, err := s.client.EndSession(s.ID)
@@ -282,6 +382,10 @@ func (s *Session) writeInfoFile() error {
 		Port:      s.Port,
 		StartTime: s.StartTime.Format(time.RFC3339),
 		Mode:      s.Mode,
+	}
+	if s.Own {
+		info.Upstream = s.UpstreamName
+		info.Via = s.Via
 	}
 
 	data, err := json.MarshalIndent(info, "", "  ")
@@ -375,11 +479,7 @@ func detectExitIPRetry(ctx context.Context, port int, timeout time.Duration) str
 	return ""
 }
 
-var ipDetectEndpoints = []string{
-	"https://ipinfo.io/ip",
-	"https://api.ipify.org",
-}
-
+// detectExitIP asks the exit IP services through the local proxy.
 func detectExitIP(ctx context.Context, port int) string {
 	proxyURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 	transport := &http.Transport{
@@ -392,7 +492,7 @@ func detectExitIP(ctx context.Context, port int) string {
 		Timeout:   10 * time.Second,
 	}
 
-	for _, endpoint := range ipDetectEndpoints {
+	for _, endpoint := range proxy.ExitIPEndpoints {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
 			continue

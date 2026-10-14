@@ -19,12 +19,10 @@ import (
 func newTestServer(t *testing.T, gatewayAddr string) *Server {
 	t.Helper()
 	s := NewServer(&Config{
-		ListenPort:  0,
-		GatewayAddr: gatewayAddr,
-		GatewayTLS:  false,
-		Token:       "test-token",
-		Meter:       meter.New(),
-		ByteBudget:  -1,
+		ListenPort: 0,
+		Upstream:   NewHostedUpstream(gatewayAddr, false, "test-token"),
+		Meter:      meter.New(),
+		ByteBudget: -1,
 	})
 	return s
 }
@@ -164,11 +162,9 @@ func TestSwapUpstream(t *testing.T) {
 	}
 
 	// Gateway addr should be updated
-	s.mu.Lock()
-	addr := s.gatewayAddr
-	s.mu.Unlock()
-	if addr != "new-gateway:8080" {
-		t.Errorf("gatewayAddr = %q, want new-gateway:8080", addr)
+	up, ok := s.Upstream().(*HTTPUpstream)
+	if !ok || up.addr != "new-gateway:8080" {
+		t.Errorf("upstream = %#v, want hosted new-gateway:8080", s.Upstream())
 	}
 }
 
@@ -177,8 +173,7 @@ func TestSwapUpstream(t *testing.T) {
 func TestTrackedConnsCloseOnDead(t *testing.T) {
 	s := NewServer(&Config{
 		ListenPort:  0,
-		GatewayAddr: "localhost:0",
-		Token:       "test",
+		Upstream:    NewHostedUpstream("localhost:0", false, "test"),
 		Meter:       meter.New(),
 		ByteBudget:  -1,
 		TrackRelays: true,
@@ -218,8 +213,7 @@ func TestTrackedConnsCloseOnDead(t *testing.T) {
 func TestTrackedConnsNotClosedOnDeadFalse(t *testing.T) {
 	s := NewServer(&Config{
 		ListenPort:  0,
-		GatewayAddr: "localhost:0",
-		Token:       "test",
+		Upstream:    NewHostedUpstream("localhost:0", false, "test"),
 		Meter:       meter.New(),
 		ByteBudget:  -1,
 		TrackRelays: true,
@@ -246,8 +240,7 @@ func TestTrackedConnsNotClosedOnDeadFalse(t *testing.T) {
 func TestTrackUntrack(t *testing.T) {
 	s := NewServer(&Config{
 		ListenPort:  0,
-		GatewayAddr: "localhost:0",
-		Token:       "test",
+		Upstream:    NewHostedUpstream("localhost:0", false, "test"),
 		Meter:       meter.New(),
 		ByteBudget:  -1,
 		TrackRelays: true,
@@ -275,8 +268,7 @@ func TestTrackUntrack(t *testing.T) {
 func TestNoTrackingWhenDisabled(t *testing.T) {
 	s := NewServer(&Config{
 		ListenPort:  0,
-		GatewayAddr: "localhost:0",
-		Token:       "test",
+		Upstream:    NewHostedUpstream("localhost:0", false, "test"),
 		Meter:       meter.New(),
 		ByteBudget:  -1,
 		TrackRelays: false, // disabled
@@ -320,7 +312,7 @@ func TestDeadStateSetBeforeClientResponse(t *testing.T) {
 	defer client.Close()
 
 	go func() {
-		result := s.dialAndSendConnect(server, "example.com:443")
+		result := s.dialAndSendConnect(context.Background(), server, "example.com:443")
 		if result != nil {
 			result.Close()
 		}
@@ -376,7 +368,7 @@ func TestXRouteDeadHeaderSetsRouteDead(t *testing.T) {
 	defer client.Close()
 
 	go func() {
-		result := s.dialAndSendConnect(server, "example.com:443")
+		result := s.dialAndSendConnect(context.Background(), server, "example.com:443")
 		if result != nil {
 			result.Close()
 		}
@@ -417,7 +409,7 @@ func TestDialFailureDoesNotPoisonRoute(t *testing.T) {
 	// First request — dial fails, returns 502
 	c1, s1 := net.Pipe()
 	go func() {
-		s.dialAndSendConnect(s1, "example.com:443")
+		s.dialAndSendConnect(context.Background(), s1, "example.com:443")
 		s1.Close()
 	}()
 	resp, _ := http.ReadResponse(bufio.NewReader(c1), nil)
@@ -522,8 +514,7 @@ func TestRelayNormalCloseDoesNotTriggerDeath(t *testing.T) {
 func TestRelayNormalCloseDoesNotTriggerDeathRunMode(t *testing.T) {
 	s := NewServer(&Config{
 		ListenPort:  0,
-		GatewayAddr: "localhost:0",
-		Token:       "test",
+		Upstream:    NewHostedUpstream("localhost:0", false, "test"),
 		Meter:       meter.New(),
 		ByteBudget:  -1,
 		TrackRelays: true, // run mode
@@ -572,11 +563,10 @@ func TestRelayNormalCloseDoesNotTriggerDeathRunMode(t *testing.T) {
 
 func TestCheckBudgetSetsDepletedBeforeResponse(t *testing.T) {
 	s := NewServer(&Config{
-		ListenPort:  0,
-		GatewayAddr: "localhost:0",
-		Token:       "test",
-		Meter:       meter.New(),
-		ByteBudget:  100, // very small budget
+		ListenPort: 0,
+		Upstream:   NewHostedUpstream("localhost:0", false, "test"),
+		Meter:      meter.New(),
+		ByteBudget: 100, // very small budget
 	})
 
 	// Add bytes to exceed budget
@@ -660,7 +650,7 @@ func TestRelayIdleTimeout_ClosesOnStall(t *testing.T) {
 
 	relayDone := make(chan struct{})
 	go func() {
-		s.handleConnect(context.Background(), server, "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\nProxy-Authorization: Basic "+s.gatewayAuth+"\r\n\r\n")
+		s.handleConnect(context.Background(), server, "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\nProxy-Authorization: Basic "+s.Upstream().(*HTTPUpstream).auth+"\r\n\r\n")
 		server.Close()
 		close(relayDone)
 	}()
