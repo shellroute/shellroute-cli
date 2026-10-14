@@ -189,7 +189,7 @@ CHECKS=(C-01 C-02 C-03 C-04 C-05 C-06 C-07 C-08 C-09 C-10 C-14)
 FAILS=0
 mark() {
   printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$RESULTS"
-  if [ "$3" = FAIL ]; then FAILS=$((FAILS+1)); say "  FAIL $1 $2: ${4:-}"; fi
+  if [ "$3" = FAIL ]; then FAILS=$((FAILS+1)); say "  FAIL: $1 $2 ${4:-}"; fi
   return 0
 }
 diag() { [ -n "${1:-}" ] && docker logs --tail 8 "$1" 2>&1 | sed 's/^/      | /' >&2; return 0; }
@@ -237,7 +237,8 @@ run_checks() {
   # C-07 20 MB download: sha256 and metered bytes
   "$SR" run work --no-check -- curl -sS -o "$TMP/blob" "http://$TARGET/blob" 2>"$TMP/err"; rc=$?
   local sha; sha=$(shasum -a 256 "$TMP/blob" 2>/dev/null | cut -d' ' -f1)
-  local metered; metered=$(grep -oE "Data used:[^0-9]*[0-9.]+ [KMG]?B" "$TMP/err" | tail -1)
+  # The summary is colored on a terminal; strip the escape codes before parsing.
+  local metered; metered=$(perl -pe 's/\e\[[0-9;]*m//g' "$TMP/err" | grep -oE "Data used: *[0-9.]+ [KMG]?B" | tail -1)
   local mb; mb=$(echo "$metered" | grep -oE "[0-9.]+ MB" | grep -oE "[0-9.]+")
   if [ $rc -eq 0 ] && [ "$sha" = "$BLOB_SHA" ] && [ -n "$mb" ] && python3 -c "import sys; mb=float('$mb'); sys.exit(0 if 19.6 <= mb <= 20.4 else 1)"; then mark "$name" C-07 PASS; else mark "$name" C-07 FAIL "rc=$rc sha_ok=$([ "$sha" = "$BLOB_SHA" ] && echo y || echo n) metered='$metered'"; fi
   # C-08 20 parallel curls
