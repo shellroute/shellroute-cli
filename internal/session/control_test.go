@@ -1558,7 +1558,7 @@ func TestStopAndDisconnect_IncludesAccumulated(t *testing.T) {
 	ctrl.accumCost = 0.20
 	ctrl.mu.Unlock()
 
-	resp := ctrl.StopAndDisconnect()
+	resp, _ := ctrl.StopAndDisconnect()
 	if resp == nil {
 		t.Fatal("expected response")
 	}

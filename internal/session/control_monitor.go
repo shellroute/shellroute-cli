@@ -128,7 +128,7 @@ func (c *Controller) balanceMonitor(ctx context.Context) {
 			isDepleted := c.deadReason == "depleted" && !c.healthy
 			c.mu.Unlock()
 
-			if sess == nil {
+			if sess == nil || sess.Own {
 				continue
 			}
 

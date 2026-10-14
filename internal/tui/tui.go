@@ -21,16 +21,18 @@ var Version = "dev"
 
 // Run starts the interactive shell session.
 func Run(cfg *config.Config) error {
-	printBanner()
+	printBanner(len(cfg.Upstreams) > 0)
 
 	client := api.New(cfg.APIURL, cfg.APIKey)
 
 	// Show balance warning on startup (threshold from server)
-	if bal, err := client.GetBalance(); err == nil {
-		if bal.BalanceUSD == 0 {
-			display.Warn("Balance $0.00 — top up to use at https://console.shellroute.com")
-		} else if bal.LowBalance {
-			display.Warn("Balance low (%s) — top up at https://console.shellroute.com", display.FormatBalance(bal.BalanceUSD))
+	if cfg.HasAuth() {
+		if bal, err := client.GetBalance(); err == nil {
+			if bal.BalanceUSD == 0 {
+				display.Warn("Balance $0.00 — top up to use at https://console.shellroute.com")
+			} else if bal.LowBalance {
+				display.Warn("Balance low (%s) — top up at https://console.shellroute.com", display.FormatBalance(bal.BalanceUSD))
+			}
 		}
 	}
 
@@ -43,18 +45,22 @@ func Run(cfg *config.Config) error {
 
 	runShell(ctrlPort, "", cfg.DefaultType)
 
-	if resp := ctrl.StopAndDisconnect(); resp != nil {
-		printSessionSummary(resp)
+	if resp, own := ctrl.StopAndDisconnect(); resp != nil {
+		printSessionSummary(resp, own)
 	}
 
 	return nil
 }
 
-func printSessionSummary(resp *api.SessionEndResponse) {
+func printSessionSummary(resp *api.SessionEndResponse, own bool) {
+	if own {
+		display.OwnSessionSummary("Disconnected.", resp.DurationSec, resp.BytesTotal)
+		return
+	}
 	display.SessionSummary("Disconnected.", resp.DurationSec, resp.BytesTotal, resp.CostUSD, resp.BalanceUSD)
 }
 
-func printBanner() {
+func printBanner(hasUpstreams bool) {
 	bold := lipgloss.NewStyle().Bold(true).Render("shellroute")
 	ver := lipgloss.NewStyle().Foreground(lipgloss.ANSIColor(8)).Render(" " + Version)
 	dim := lipgloss.NewStyle().Foreground(lipgloss.ANSIColor(8))
@@ -63,6 +69,9 @@ func printBanner() {
 	fmt.Println("  " + bold + ver)
 	fmt.Println()
 	fmt.Println(dim.Render("  /connect <country>   Connect and route traffic"))
+	if hasUpstreams {
+		fmt.Println(dim.Render("  /connect <name>      Route through your own proxy"))
+	}
 	fmt.Println(dim.Render("  /countries           List available countries"))
 	fmt.Println(dim.Render("  /ssh <user@host>     SSH through the proxy"))
 	fmt.Println(dim.Render("  /help                All commands"))
@@ -224,6 +233,12 @@ _sr_prompt() {
           _sr_msg="  \033[33m✗ Balance depleted. Top up, then run /connect to reconnect.\033[0m"
           _SR_KILLSWITCH_SHOWN="depleted"
         fi
+      elif [ -n "$SHELLROUTE_UPSTREAM" ]; then
+        # Own proxy: nothing to rotate to. Say so once.
+        if [ "$_SR_KILLSWITCH_SHOWN" != "lost" ]; then
+          _sr_msg="  \033[31m✗ Connection lost through ${SHELLROUTE_UPSTREAM}. Run /connect.\033[0m"
+          _SR_KILLSWITCH_SHOWN="lost"
+        fi
       else
         # Auto-reconnect on connection lost
         _sr_msg="  \033[33m⟳ Reconnecting...\033[0m"
@@ -256,6 +271,11 @@ _sr_prompt() {
     PS1="\[\033[33m\]●\[\033[0m\]\[\033[1m\] shellroute\[\033[0m\] · \[\033[33m\]balance depleted\[\033[0m\]\n\[\033[90m\]\w\[\033[0m\] \[\033[33m\]❯\[\033[0m\] "
   elif [ "$_SR_KILLSWITCH_SHOWN" = "lost" ]; then
     PS1="\[\033[31m\]●\[\033[0m\]\[\033[1m\] shellroute\[\033[0m\] · \[\033[31m\]connection lost\[\033[0m\]\n\[\033[90m\]\w\[\033[0m\] \[\033[31m\]❯\[\033[0m\] "
+  elif [ -n "$SHELLROUTE_UPSTREAM" ]; then
+    local tag="$SHELLROUTE_UPSTREAM"
+    [ -n "$SHELLROUTE_COUNTRY" ] && tag="${tag} (${SHELLROUTE_COUNTRY})"
+    local ip="${SHELLROUTE_EXIT_IP:-exit IP unknown}"
+    PS1="\[\033[32m\]●\[\033[0m\]\[\033[1m\] shellroute\[\033[0m\] \[\033[90m\]${tag} · ${ip}\[\033[0m\]\n\[\033[90m\]\w\[\033[0m\] \[\033[32m\]❯\[\033[0m\] "
   elif [ -n "$SHELLROUTE_COUNTRY" ]; then
     local cc=$(echo "$SHELLROUTE_COUNTRY" | tr '[:upper:]' '[:lower:]')
     local ip="$SHELLROUTE_EXIT_IP"
@@ -310,6 +330,8 @@ _sr_prompt() {
       if [[ "$_SR_KILLSWITCH_SHOWN" != "$_reason" ]]; then
         if [[ "$_reason" = "depleted" ]]; then
           print $'\e[33m  ✗ Balance depleted. Top up, then run /connect to reconnect.\e[0m'
+        elif [[ -n "$SHELLROUTE_UPSTREAM" ]]; then
+          print $'\e[31m  ✗ Connection lost through '"${SHELLROUTE_UPSTREAM}"$'. Run /connect.\e[0m'
         else
           print $'\e[31m  ✗ Connection lost. Run /connect.\e[0m'
         fi
@@ -323,6 +345,8 @@ _sr_prompt() {
     PROMPT=$'%F{yellow}●%f %Bshellroute%b · %F{yellow}balance depleted%f\n%F{242}%~%f %F{yellow}❯%f '
   elif [[ "$_SR_KILLSWITCH_SHOWN" = "lost" ]]; then
     PROMPT=$'%F{red}●%f %Bshellroute%b · %F{red}connection lost%f\n%F{242}%~%f %F{red}❯%f '
+  elif [[ -n "$SHELLROUTE_UPSTREAM" ]]; then
+    PROMPT=$'%F{green}●%f %Bshellroute%b %F{242}${SHELLROUTE_UPSTREAM}${SHELLROUTE_COUNTRY:+ (${SHELLROUTE_COUNTRY})} · ${SHELLROUTE_EXIT_IP:-exit IP unknown}%f\n%F{242}%~%f %F{green}❯%f '
   elif [[ -n "$SHELLROUTE_COUNTRY" ]]; then
     PROMPT=$'%F{green}●%f %Bshellroute%b %F{242}${(L)SHELLROUTE_COUNTRY} · ${SHELLROUTE_EXIT_IP}%f\n%F{242}%~%f %F{green}❯%f '
   else
@@ -378,6 +402,19 @@ _sr_accept_line() {
       zle reset-prompt
     else
       # Already shown — let command through
+      zle .accept-line
+    fi
+    return
+  fi
+
+  # Own proxy: nothing to rotate to. Block the command and say so.
+  if [[ -n "$SHELLROUTE_UPSTREAM" ]]; then
+    if [[ "$_SR_KILLSWITCH_SHOWN" != "lost" ]]; then
+      _SR_KILLSWITCH_SHOWN="lost"
+      _SR_HEALTH="dead"
+      zle -M "  ✗ Connection lost through ${SHELLROUTE_UPSTREAM}. Run /connect."
+      zle reset-prompt
+    else
       zle .accept-line
     fi
     return
