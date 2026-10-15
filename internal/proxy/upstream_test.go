@@ -814,9 +814,42 @@ func (d *directUpstream) Describe() string { return "direct" }
 
 func withExitIPEndpoints(t *testing.T, endpoints ...string) {
 	t.Helper()
-	old := ExitIPEndpoints
-	ExitIPEndpoints = endpoints
-	t.Cleanup(func() { ExitIPEndpoints = old })
+	old := ExitInfoEndpoints
+	ExitInfoEndpoints = endpoints
+	t.Cleanup(func() { ExitInfoEndpoints = old })
+}
+
+func TestProbe_ReadsCountryFromJSON(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"ip": "203.0.113.7", "city": "Vilnius", "country": "lt"}`)
+	}))
+	defer ts.Close()
+	withExitIPEndpoints(t, ts.URL)
+
+	res, err := Probe(context.Background(), &directUpstream{}, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ExitIP != "203.0.113.7" || res.Country != "LT" {
+		t.Errorf("res = %+v, want IP 203.0.113.7 and country LT", res)
+	}
+}
+
+func TestParseExitInfo(t *testing.T) {
+	cases := []struct{ body, ip, country string }{
+		{`{"ip":"1.2.3.4","country":"DE"}`, "1.2.3.4", "DE"},
+		{`{"ip":"1.2.3.4"}`, "1.2.3.4", ""},
+		{"1.2.3.4\n", "1.2.3.4", ""},
+		{`{"ip":"not-an-ip"}`, "", ""},
+		{"<html>", "", ""},
+		{`{"country":"DE"}`, "", ""},
+	}
+	for _, tc := range cases {
+		ip, country := parseExitInfo([]byte(tc.body))
+		if ip != tc.ip || country != tc.country {
+			t.Errorf("parseExitInfo(%q) = %q,%q want %q,%q", tc.body, ip, country, tc.ip, tc.country)
+		}
+	}
 }
 
 func TestProbe_ReadsExitIPThroughUpstream(t *testing.T) {

@@ -13,7 +13,7 @@ import (
 
 func cfgWithUpstream() *config.Config {
 	cfg := config.Default()
-	cfg.AddUpstream(config.Upstream{Name: "work", URL: "http://u:p@proxy.example:8080", Country: "DE"})
+	cfg.AddUpstream(config.Upstream{Name: "work", URL: "http://u:p@proxy.example:8080"})
 	cfg.AddUpstream(config.Upstream{Name: "broken", URL: "ftp://x:1"})
 	return cfg
 }
@@ -34,15 +34,14 @@ func TestResolveRunTarget(t *testing.T) {
 		wantCountry string
 		wantOwn     bool
 		wantName    string
-		wantLabel   string
 		wantRest    []string
 		wantErr     string
 	}{
 		{name: "positional country", cfg: cfg, args: []string{"US", "curl", "x"}, dash: 1, wantCountry: "US", wantRest: []string{"curl", "x"}},
 		{name: "positional country without dash", cfg: cfg, args: []string{"US", "curl"}, dash: -1, wantCountry: "US", wantRest: []string{"curl"}},
 		{name: "country flag", cfg: cfg, args: []string{"curl"}, dash: 0, country: "DE", wantCountry: "DE", wantRest: []string{"curl"}},
-		{name: "saved name", cfg: cfg, args: []string{"work", "curl"}, dash: 1, wantOwn: true, wantName: "work", wantLabel: "DE", wantRest: []string{"curl"}},
-		{name: "saved name without dash", cfg: cfg, args: []string{"work", "curl"}, dash: -1, wantOwn: true, wantName: "work", wantLabel: "DE", wantRest: []string{"curl"}},
+		{name: "saved name", cfg: cfg, args: []string{"work", "curl"}, dash: 1, wantOwn: true, wantName: "work", wantRest: []string{"curl"}},
+		{name: "saved name without dash", cfg: cfg, args: []string{"work", "curl"}, dash: -1, wantOwn: true, wantName: "work", wantRest: []string{"curl"}},
 		{name: "unknown word without dash is the command", cfg: cfg, args: []string{"curl", "x"}, dash: -1, wantErr: "country required"},
 		{name: "unknown name before dash", cfg: cfg, args: []string{"nope", "curl"}, dash: 1, wantErr: "unknown upstream \"nope\""},
 		{name: "saved name with invalid URL", cfg: cfg, args: []string{"broken", "curl"}, dash: 1, wantErr: "invalid URL"},
@@ -69,8 +68,8 @@ func TestResolveRunTarget(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if got.own() != tc.wantOwn || got.country != tc.wantCountry || got.name != tc.wantName || got.label != tc.wantLabel {
-				t.Errorf("target = own:%v country:%q name:%q label:%q", got.own(), got.country, got.name, got.label)
+			if got.own() != tc.wantOwn || got.country != tc.wantCountry || got.name != tc.wantName {
+				t.Errorf("target = own:%v country:%q name:%q", got.own(), got.country, got.name)
 			}
 			if strings.Join(rest, " ") != strings.Join(tc.wantRest, " ") {
 				t.Errorf("rest = %v, want %v", rest, tc.wantRest)
@@ -81,7 +80,7 @@ func TestResolveRunTarget(t *testing.T) {
 
 func TestResolveUpstreamRef(t *testing.T) {
 	cfg := cfgWithUpstream()
-	if got, err := resolveUpstreamRef(cfg, "work"); err != nil || got.name != "work" || got.label != "DE" {
+	if got, err := resolveUpstreamRef(cfg, "work"); err != nil || got.name != "work" {
 		t.Errorf("saved name: %+v %v", got, err)
 	}
 	if got, err := resolveUpstreamRef(cfg, "https://h:443"); err != nil || got.name != "" || !got.own() {
@@ -138,8 +137,12 @@ func TestOwnRouteSelected(t *testing.T) {
 func TestViaLine(t *testing.T) {
 	s := &session.Session{Own: true, UpstreamName: "work", Country: "DE", ConnectMs: 212}
 	s.SetExitIP("91.198.0.1")
-	if got := viaLine(s); got != "via work · exit IP 91.198.0.1 (DE) · 212 ms" {
+	if got := viaLine(s); got != "via work · exit IP 91.198.0.1 · DE (observed) · 212 ms" {
 		t.Errorf("viaLine = %q", got)
+	}
+	s.Country = ""
+	if got := viaLine(s); got != "via work · exit IP 91.198.0.1 · 212 ms" {
+		t.Errorf("viaLine without country = %q", got)
 	}
 	s2 := &session.Session{Own: true, Via: "socks5://h:1080"}
 	if got := viaLine(s2); got != "via socks5://h:1080" {

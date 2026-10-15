@@ -760,16 +760,16 @@ func (c *Controller) httpStatus(w http.ResponseWriter, r *http.Request) {
 	uptime := time.Since(c.sess.StartTime).Truncate(time.Second)
 
 	if c.sess.Own {
-		label := c.sess.UpstreamName
-		if c.sess.Country != "" {
-			label += " (" + c.sess.Country + ")"
-		}
-		fmt.Fprintf(w, "  Upstream: %s\n", label)
+		fmt.Fprintf(w, "  Upstream: %s\n", c.sess.UpstreamName)
 		fmt.Fprintf(w, "  Via:      %s\n", c.sess.Via)
+		fmt.Fprintf(w, "  Exit IP:  %s\n", c.sess.GetExitIP())
+		if c.sess.Country != "" {
+			fmt.Fprintf(w, "  Country:  %s (observed)\n", c.sess.Country)
+		}
 	} else {
 		fmt.Fprintf(w, "  Country:  %s\n", c.sess.Country)
+		fmt.Fprintf(w, "  Exit IP:  %s\n", c.sess.GetExitIP())
 	}
-	fmt.Fprintf(w, "  Exit IP:  %s\n", c.sess.GetExitIP())
 	fmt.Fprintf(w, "  Health:   %s\n", health)
 	fmt.Fprintf(w, "  Uptime:   %s\n", uptime)
 }

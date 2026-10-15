@@ -49,7 +49,7 @@ func TestConnectName_UsesUpstreamEndpoint(t *testing.T) {
 				export SHELLROUTE_CTRL=1
 				/connect work
 				echo "U=$SHELLROUTE_UPSTREAM C=$SHELLROUTE_COUNTRY IP=$SHELLROUTE_EXIT_IP"`)
-			if !strings.Contains(out, "Connected through work (DE) — exit IP: 1.2.3.4") {
+			if !strings.Contains(out, "Connected through work — exit IP: 1.2.3.4 (DE, observed)") {
 				t.Errorf("output:\n%s", out)
 			}
 			if !strings.Contains(out, "U=work C=DE IP=1.2.3.4") {

@@ -138,7 +138,7 @@ func runConnectOwn(cfg *config.Config) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	sigs := NewSignalHandler(cancel, syscall.SIGINT, syscall.SIGTERM)
 
-	sess, err := session.StartOwn(ctx, target.upstream, target.name, target.label, port,
+	sess, err := session.StartOwn(ctx, target.upstream, target.name, port,
 		session.StartOpts{Mode: "proxy", SkipExitIP: connectNoCheck})
 	if err != nil {
 		sigs.Stop()
@@ -255,6 +255,7 @@ func outputJSON(sess *session.Session) {
 		}
 		data["upstream"] = who
 		data["type"] = "own"
+		data["country_observed"] = sess.Country != ""
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")

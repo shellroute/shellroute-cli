@@ -159,8 +159,8 @@ _sr_connect_upstream() {
   result=$(echo "$result" | grep -v '^PROBE_WARNING=')
   eval "$result"
   local where=""
-  [ -n "$SHELLROUTE_COUNTRY" ] && where=" (${SHELLROUTE_COUNTRY})"
-  echo "  ✓ Connected through ${SHELLROUTE_UPSTREAM}${where} — exit IP: ${SHELLROUTE_EXIT_IP:-unknown}"
+  [ -n "$SHELLROUTE_COUNTRY" ] && where=" (${SHELLROUTE_COUNTRY}, observed)"
+  echo "  ✓ Connected through ${SHELLROUTE_UPSTREAM} — exit IP: ${SHELLROUTE_EXIT_IP:-unknown}${where}"
   [ -n "$warn" ] && echo -e "  \033[33m⚠ Exit IP unknown: ${warn}\033[0m"
   return 0
 }

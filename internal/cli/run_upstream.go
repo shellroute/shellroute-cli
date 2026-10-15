@@ -30,7 +30,6 @@ type runTarget struct {
 	country  string         // hosted route; "" for an own route
 	upstream proxy.Upstream // own route
 	name     string         // saved upstream name; "" for --proxy or the environment
-	label    string         // own route: country label from the saved entry, unverified
 }
 
 func (t runTarget) own() bool { return t.upstream != nil }
@@ -105,7 +104,7 @@ func resolveRunTarget(cfg *config.Config, args []string, dashIdx int, proxyFlag,
 		if err != nil {
 			return runTarget{}, nil, fmt.Errorf("saved upstream %q has an invalid URL (%v). Remove it and add it again", first, err)
 		}
-		return runTarget{upstream: up, name: first, label: entry.Country}, rest, nil
+		return runTarget{upstream: up, name: first}, rest, nil
 	}
 
 	if envProxy != "" {
@@ -133,7 +132,7 @@ func resolveUpstreamRef(cfg *config.Config, ref string) (runTarget, error) {
 		if err != nil {
 			return runTarget{}, fmt.Errorf("saved upstream %q has an invalid URL (%v). Remove it and add it again", ref, err)
 		}
-		return runTarget{upstream: up, name: ref, label: entry.Country}, nil
+		return runTarget{upstream: up, name: ref}, nil
 	}
 	if strings.Contains(ref, "://") {
 		up, err := proxy.ParseUpstreamURL(ref)
@@ -166,7 +165,8 @@ func ownRouteSelected(cmd *cobra.Command, args []string) bool {
 	return false
 }
 
-// viaLine formats the own-route status line: via work · exit IP 1.2.3.4 (DE) · 212 ms.
+// viaLine formats the own-route status line:
+// via work · exit IP 1.2.3.4 · DE (observed) · 212 ms.
 func viaLine(sess *session.Session) string {
 	who := sess.UpstreamName
 	if who == "" {
@@ -174,11 +174,10 @@ func viaLine(sess *session.Session) string {
 	}
 	parts := []string{"via " + who}
 	if ip := sess.GetExitIP(); ip != "" {
-		s := "exit IP " + ip
+		parts = append(parts, "exit IP "+ip)
 		if sess.Country != "" {
-			s += " (" + sess.Country + ")"
+			parts = append(parts, sess.Country+" (observed)")
 		}
-		parts = append(parts, s)
 	}
 	if sess.ConnectMs > 0 {
 		parts = append(parts, fmt.Sprintf("%d ms", sess.ConnectMs))

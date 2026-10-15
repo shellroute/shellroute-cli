@@ -7,11 +7,12 @@ import (
 
 // Upstream is a saved proxy of the user's own, stored in config.toml as a
 // [[upstream]] table. URL carries the credentials; the file is mode 0600.
+// There is no country field on purpose: where a third-party proxy exits is
+// observed at run time, not declared.
 type Upstream struct {
-	Name    string `toml:"name"`
-	URL     string `toml:"url"`
-	Country string `toml:"country,omitempty"` // display label only; not verified
-	Note    string `toml:"note,omitempty"`
+	Name string `toml:"name"`
+	URL  string `toml:"url"`
+	Note string `toml:"note,omitempty"`
 }
 
 // Upstream names are 3 to 32 characters of lowercase letters, digits,

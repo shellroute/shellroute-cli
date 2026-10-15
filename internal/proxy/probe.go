@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,21 +12,57 @@ import (
 	"time"
 )
 
-// ExitIPEndpoints are the services asked for the public IP of a route.
+// ExitIPEndpoints are the plain-text services asked for the public IP of a
+// hosted route.
 var ExitIPEndpoints = []string{
 	"https://ipinfo.io/ip",
 	"https://api.ipify.org",
 }
 
-// ProbeResult is what Probe learned about an upstream.
+// ExitInfoEndpoints answer with JSON naming the caller's public IP ("ip") and,
+// when the service knows it, the country ("country"). Used for routes through
+// the user's own proxy, where nothing else can tell us where the exit is.
+var ExitInfoEndpoints = []string{
+	"https://ipinfo.io/json",
+	"https://api.ipify.org?format=json",
+}
+
+// ProbeResult is what Probe learned about an upstream. Country is what the
+// exit IP service reported for the exit IP: a measurement, often right,
+// sometimes wrong, and empty when the service does not say.
 type ProbeResult struct {
 	ExitIP  string
+	Country string
 	Latency time.Duration
 }
 
-// Probe opens a tunnel through the upstream and asks an IP echo service for
-// the exit IP. A *DialError means the tunnel could not be opened; any other
-// error means the tunnel opened but no service returned a usable IP.
+// exitInfo is the JSON shape shared by the exit info services.
+type exitInfo struct {
+	IP      string `json:"ip"`
+	Country string `json:"country"`
+}
+
+// parseExitInfo accepts a JSON body with "ip" and optional "country", or a
+// plain-text IP.
+func parseExitInfo(body []byte) (ip, country string) {
+	var info exitInfo
+	if err := json.Unmarshal(body, &info); err == nil {
+		if net.ParseIP(strings.TrimSpace(info.IP)) != nil {
+			return strings.TrimSpace(info.IP), strings.ToUpper(strings.TrimSpace(info.Country))
+		}
+		return "", ""
+	}
+	text := strings.TrimSpace(string(body))
+	if net.ParseIP(text) != nil {
+		return text, ""
+	}
+	return "", ""
+}
+
+// Probe opens a tunnel through the upstream and asks an exit info service for
+// the exit IP and its country. A *DialError means the tunnel could not be
+// opened; any other error means the tunnel opened but no service returned a
+// usable IP.
 func Probe(ctx context.Context, up Upstream, timeout time.Duration) (*ProbeResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -42,7 +79,7 @@ func Probe(ctx context.Context, up Upstream, timeout time.Duration) (*ProbeResul
 
 	start := time.Now()
 	var lastErr error
-	for _, endpoint := range ExitIPEndpoints {
+	for _, endpoint := range ExitInfoEndpoints {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
 			lastErr = err
@@ -57,11 +94,10 @@ func Probe(ctx context.Context, up Upstream, timeout time.Duration) (*ProbeResul
 			lastErr = err
 			continue
 		}
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		resp.Body.Close()
-		ip := strings.TrimSpace(string(body))
-		if net.ParseIP(ip) != nil {
-			return &ProbeResult{ExitIP: ip, Latency: time.Since(start)}, nil
+		if ip, country := parseExitInfo(body); ip != "" {
+			return &ProbeResult{ExitIP: ip, Country: country, Latency: time.Since(start)}, nil
 		}
 		lastErr = fmt.Errorf("unexpected reply from %s", endpoint)
 	}

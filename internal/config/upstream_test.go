@@ -36,7 +36,7 @@ func TestValidateUpstreamName(t *testing.T) {
 
 func TestUpstreamAddFindRemove(t *testing.T) {
 	cfg := Default()
-	if replaced := cfg.AddUpstream(Upstream{Name: "work", URL: "http://u:p@h:8080", Country: "DE"}); replaced {
+	if replaced := cfg.AddUpstream(Upstream{Name: "work", URL: "http://u:p@h:8080", Note: "office"}); replaced {
 		t.Error("first add must not report a replacement")
 	}
 	if replaced := cfg.AddUpstream(Upstream{Name: "home", URL: "socks5://h:1080"}); replaced {
@@ -49,7 +49,7 @@ func TestUpstreamAddFindRemove(t *testing.T) {
 		t.Fatalf("len = %d, want 2", len(cfg.Upstreams))
 	}
 	u, ok := cfg.FindUpstream("work")
-	if !ok || u.URL != "http://u:new@h:8080" || u.Country != "" {
+	if !ok || u.URL != "http://u:new@h:8080" || u.Note != "" {
 		t.Errorf("FindUpstream(work) = %+v, %v", u, ok)
 	}
 	if _, ok := cfg.FindUpstream("nope"); ok {
@@ -69,7 +69,7 @@ func TestUpstreamsRoundTripThroughConfigFile(t *testing.T) {
 	t.Setenv("SHELLROUTE_API_KEY", "")
 
 	cfg := Default()
-	cfg.AddUpstream(Upstream{Name: "work", URL: "http://alice:s3cret@proxy.example:8080", Country: "DE", Note: "office"})
+	cfg.AddUpstream(Upstream{Name: "work", URL: "http://alice:s3cret@proxy.example:8080", Note: "office"})
 	cfg.AddUpstream(Upstream{Name: "home", URL: "socks5h://home.example:1080"})
 	if err := Save(cfg); err != nil {
 		t.Fatal(err)
@@ -96,11 +96,11 @@ func TestUpstreamsRoundTripThroughConfigFile(t *testing.T) {
 		t.Fatalf("loaded %d upstreams, want 2:\n%s", len(loaded.Upstreams), raw)
 	}
 	w, ok := loaded.FindUpstream("work")
-	if !ok || w.URL != "http://alice:s3cret@proxy.example:8080" || w.Country != "DE" || w.Note != "office" {
+	if !ok || w.URL != "http://alice:s3cret@proxy.example:8080" || w.Note != "office" {
 		t.Errorf("work = %+v", w)
 	}
 	h, _ := loaded.FindUpstream("home")
-	if h == nil || h.Country != "" || h.Note != "" {
+	if h == nil || h.Note != "" {
 		t.Errorf("home = %+v", h)
 	}
 }

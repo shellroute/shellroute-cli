@@ -86,8 +86,8 @@ curl -x http://127.0.0.1:41900 https://ipinfo.io/ip
 Already pay a proxy provider, or run one? Save it and use its name wherever a country goes. No account needed.
 
 ```bash
-shellroute upstream add work http://user:pass@proxy.example.com:8080 --country DE
-shellroute upstream test work                     # via work · exit IP 91.198.0.12 (DE) · 212 ms
+shellroute upstream add work http://user:pass@proxy.example.com:8080
+shellroute upstream test work                     # via work · exit IP 91.198.0.12 · DE (observed) · 212 ms
 shellroute run work -- curl https://ipinfo.io/json
 shellroute proxy --upstream work
 shellroute run --proxy socks5://127.0.0.1:1080 -- curl https://ipinfo.io/json

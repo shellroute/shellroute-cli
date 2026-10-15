@@ -41,9 +41,9 @@ func execCLI(t *testing.T, args ...string) (string, error) {
 
 func withExitIPEndpoints(t *testing.T, endpoints ...string) {
 	t.Helper()
-	old := proxy.ExitIPEndpoints
-	proxy.ExitIPEndpoints = endpoints
-	t.Cleanup(func() { proxy.ExitIPEndpoints = old })
+	old := proxy.ExitInfoEndpoints
+	proxy.ExitInfoEndpoints = endpoints
+	t.Cleanup(func() { proxy.ExitInfoEndpoints = old })
 }
 
 func ipEcho(t *testing.T, body string) *httptest.Server {
@@ -102,18 +102,10 @@ func TestUpstreamAdd_RejectsBadURLs(t *testing.T) {
 	}
 }
 
-func TestUpstreamAdd_RejectsBadCountryLabel(t *testing.T) {
-	withOwnConfig(t)
-	_, err := execCLI(t, "upstream", "add", "work", "http://proxy.example:8080", "--country", "XYZ")
-	if err == nil || !strings.Contains(err.Error(), "2 letters") {
-		t.Errorf("err = %v", err)
-	}
-}
-
 func TestUpstreamAddListRemove(t *testing.T) {
 	dir := withOwnConfig(t)
 
-	if _, err := execCLI(t, "upstream", "add", "work", "http://alice:s3cret@proxy.example:8080", "--country", "de", "--note", "office"); err != nil {
+	if _, err := execCLI(t, "upstream", "add", "work", "http://alice:s3cret@proxy.example:8080", "--note", "office"); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 	if _, err := execCLI(t, "upstream", "add", "home", "socks5://home.example:1080"); err != nil {
@@ -124,7 +116,7 @@ func TestUpstreamAddListRemove(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	for _, want := range []string{"NAME", "work", "http://alice:***@proxy.example:8080", "DE", "office", "home", "socks5://home.example:1080"} {
+	for _, want := range []string{"NAME", "work", "http://alice:***@proxy.example:8080", "office", "home", "socks5://home.example:1080"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("list output lacks %q:\n%s", want, out)
 		}
@@ -201,7 +193,7 @@ func TestUpstreamTest_CredentialsError(t *testing.T) {
 func TestUpstreamTest_URLSuccess(t *testing.T) {
 	withOwnConfig(t)
 	p := proxytest.StartHTTPProxy(t, "", "")
-	withExitIPEndpoints(t, ipEcho(t, "203.0.113.5").URL)
+	withExitIPEndpoints(t, ipEcho(t, `{"ip": "203.0.113.5", "country": "LT"}`).URL)
 	if _, err := execCLI(t, "upstream", "test", "http://"+p.Addr); err != nil {
 		t.Errorf("test by URL: %v", err)
 	}

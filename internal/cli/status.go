@@ -120,7 +120,7 @@ type ownSessionInfo struct {
 	PID      int    `json:"pid"`
 	Upstream string `json:"upstream"`
 	Via      string `json:"via"`
-	Country  string `json:"country,omitempty"`
+	Country  string `json:"country_observed,omitempty"`
 	ExitIP   string `json:"exit_ip,omitempty"`
 	Port     int    `json:"port"`
 	Mode     string `json:"mode,omitempty"`
@@ -156,15 +156,14 @@ func printOwnSessions(cmd *cobra.Command, own []ownSessionInfo) {
 	}
 	fmt.Fprintln(cmd.ErrOrStderr(), display.Bold(fmt.Sprintf("Own proxy sessions (%d):", len(own))))
 	for _, s := range own {
-		label := s.Upstream
-		if s.Country != "" {
-			label += " (" + s.Country + ")"
-		}
 		ip := s.ExitIP
 		if ip == "" {
 			ip = "exit IP unknown"
 		}
-		fmt.Fprintf(cmd.ErrOrStderr(), "  PID %d  %s  %s  port %d  up %s\n", s.PID, label, ip, s.Port, s.Uptime)
+		if s.Country != "" {
+			ip += " " + s.Country
+		}
+		fmt.Fprintf(cmd.ErrOrStderr(), "  PID %d  %s  %s  port %d  up %s\n", s.PID, s.Upstream, ip, s.Port, s.Uptime)
 	}
 }
 

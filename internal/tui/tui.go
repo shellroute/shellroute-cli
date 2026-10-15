@@ -273,8 +273,8 @@ _sr_prompt() {
     PS1="\[\033[31m\]●\[\033[0m\]\[\033[1m\] shellroute\[\033[0m\] · \[\033[31m\]connection lost\[\033[0m\]\n\[\033[90m\]\w\[\033[0m\] \[\033[31m\]❯\[\033[0m\] "
   elif [ -n "$SHELLROUTE_UPSTREAM" ]; then
     local tag="$SHELLROUTE_UPSTREAM"
-    [ -n "$SHELLROUTE_COUNTRY" ] && tag="${tag} (${SHELLROUTE_COUNTRY})"
     local ip="${SHELLROUTE_EXIT_IP:-exit IP unknown}"
+    [ -n "$SHELLROUTE_COUNTRY" ] && ip="${ip} · ${SHELLROUTE_COUNTRY}"
     PS1="\[\033[32m\]●\[\033[0m\]\[\033[1m\] shellroute\[\033[0m\] \[\033[90m\]${tag} · ${ip}\[\033[0m\]\n\[\033[90m\]\w\[\033[0m\] \[\033[32m\]❯\[\033[0m\] "
   elif [ -n "$SHELLROUTE_COUNTRY" ]; then
     local cc=$(echo "$SHELLROUTE_COUNTRY" | tr '[:upper:]' '[:lower:]')
@@ -346,7 +346,7 @@ _sr_prompt() {
   elif [[ "$_SR_KILLSWITCH_SHOWN" = "lost" ]]; then
     PROMPT=$'%F{red}●%f %Bshellroute%b · %F{red}connection lost%f\n%F{242}%~%f %F{red}❯%f '
   elif [[ -n "$SHELLROUTE_UPSTREAM" ]]; then
-    PROMPT=$'%F{green}●%f %Bshellroute%b %F{242}${SHELLROUTE_UPSTREAM}${SHELLROUTE_COUNTRY:+ (${SHELLROUTE_COUNTRY})} · ${SHELLROUTE_EXIT_IP:-exit IP unknown}%f\n%F{242}%~%f %F{green}❯%f '
+    PROMPT=$'%F{green}●%f %Bshellroute%b %F{242}${SHELLROUTE_UPSTREAM} · ${SHELLROUTE_EXIT_IP:-exit IP unknown}${SHELLROUTE_COUNTRY:+ · ${SHELLROUTE_COUNTRY}}%f\n%F{242}%~%f %F{green}❯%f '
   elif [[ -n "$SHELLROUTE_COUNTRY" ]]; then
     PROMPT=$'%F{green}●%f %Bshellroute%b %F{242}${(L)SHELLROUTE_COUNTRY} · ${SHELLROUTE_EXIT_IP}%f\n%F{242}%~%f %F{green}❯%f '
   else

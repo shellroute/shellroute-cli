@@ -35,9 +35,9 @@ func (f *failingUpstream) Describe() string { return "failing" }
 
 func withExitIPEndpoints(t *testing.T, endpoints ...string) {
 	t.Helper()
-	old := proxy.ExitIPEndpoints
-	proxy.ExitIPEndpoints = endpoints
-	t.Cleanup(func() { proxy.ExitIPEndpoints = old })
+	old := proxy.ExitInfoEndpoints
+	proxy.ExitInfoEndpoints = endpoints
+	t.Cleanup(func() { proxy.ExitInfoEndpoints = old })
 }
 
 func echoIP(t *testing.T, body string) *httptest.Server {
@@ -52,15 +52,15 @@ func echoIP(t *testing.T, body string) *httptest.Server {
 func TestStartOwn_NoAPIAndStop(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("SHELLROUTE_HOME", dir)
-	withExitIPEndpoints(t, echoIP(t, "203.0.113.9\n").URL)
+	withExitIPEndpoints(t, echoIP(t, `{"ip": "203.0.113.9", "country": "DE"}`).URL)
 
 	up := &directUpstream{}
-	sess, err := StartOwn(context.Background(), up, "work", "DE", 0, StartOpts{Mode: "run", TrackRelays: true})
+	sess, err := StartOwn(context.Background(), up, "work", 0, StartOpts{Mode: "run", TrackRelays: true})
 	if err != nil {
 		t.Fatalf("StartOwn: %v", err)
 	}
 	if !sess.Own || sess.UpstreamName != "work" || sess.Country != "DE" {
-		t.Errorf("session = %+v", sess)
+		t.Errorf("session = %+v (country must be the observed one)", sess)
 	}
 	if sess.GetExitIP() != "203.0.113.9" {
 		t.Errorf("exit IP = %q", sess.GetExitIP())
@@ -102,7 +102,7 @@ func TestStartOwn_TunnelFailureReturnsDialError(t *testing.T) {
 	t.Setenv("SHELLROUTE_HOME", dir)
 	withExitIPEndpoints(t, "http://127.0.0.1:1/ip")
 
-	_, err := StartOwn(context.Background(), &failingUpstream{kind: proxy.KindDial}, "work", "", 0, StartOpts{})
+	_, err := StartOwn(context.Background(), &failingUpstream{kind: proxy.KindDial}, "work", 0, StartOpts{})
 	if !proxy.TunnelFailed(err) {
 		t.Fatalf("err = %v, want tunnel failure", err)
 	}
@@ -116,7 +116,7 @@ func TestStartOwn_ProbeFailureStillStartsWithWarning(t *testing.T) {
 	t.Setenv("SHELLROUTE_HOME", t.TempDir())
 	withExitIPEndpoints(t, echoIP(t, "<html>not an ip</html>").URL)
 
-	sess, err := StartOwn(context.Background(), &directUpstream{}, "", "", 0, StartOpts{})
+	sess, err := StartOwn(context.Background(), &directUpstream{}, "", 0, StartOpts{})
 	if err != nil {
 		t.Fatalf("StartOwn should succeed when only the echo service misbehaves: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestStartOwn_SkipExitIPMakesNoProbe(t *testing.T) {
 	withExitIPEndpoints(t, "http://127.0.0.1:1/ip")
 
 	up := &directUpstream{}
-	sess, err := StartOwn(context.Background(), up, "work", "DE", 0, StartOpts{SkipExitIP: true})
+	sess, err := StartOwn(context.Background(), up, "work", 0, StartOpts{SkipExitIP: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,14 +153,20 @@ func TestStartOwn_ProxyRoutesThroughUpstream(t *testing.T) {
 	withExitIPEndpoints(t, target.URL)
 
 	up := &directUpstream{}
-	sess, err := StartOwn(context.Background(), up, "work", "", 0, StartOpts{})
+	sess, err := StartOwn(context.Background(), up, "work", 0, StartOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer sess.Stop()
+	if sess.Country != "" {
+		t.Errorf("plain-text echo gives no country, got %q", sess.Country)
+	}
 
 	// A request through the local proxy must go out through the upstream.
 	before := up.calls.Load()
+	old := proxy.ExitIPEndpoints
+	proxy.ExitIPEndpoints = []string{target.URL}
+	defer func() { proxy.ExitIPEndpoints = old }()
 	if ip := detectExitIP(context.Background(), sess.Port); ip != "198.51.100.1" {
 		t.Fatalf("exit IP via local proxy = %q", ip)
 	}

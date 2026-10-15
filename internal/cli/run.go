@@ -171,7 +171,7 @@ func runOwn(cfg *config.Config, target runTarget, args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	sigs := NewSignalHandler(cancel, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
-	sess, err := session.StartOwn(ctx, target.upstream, target.name, target.label, port,
+	sess, err := session.StartOwn(ctx, target.upstream, target.name, port,
 		session.StartOpts{TrackRelays: true, Mode: "run", SkipExitIP: runNoCheck})
 	if err != nil {
 		sigs.Stop()

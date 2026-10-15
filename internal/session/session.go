@@ -35,7 +35,8 @@ type Session struct {
 	LowBalance bool
 
 	// Own is set when the route is the user's own proxy: no API calls, no
-	// billing, Country holds the user's label.
+	// billing. Country then holds the country the exit IP service reported
+	// for the observed exit IP, or "" when unknown.
 	Own          bool
 	UpstreamName string // saved upstream name, "" for an ad-hoc URL
 	Via          string // redacted upstream description for status output
@@ -208,14 +209,14 @@ func startWithResponse(ctx context.Context, client *api.Client, resp *api.Sessio
 
 // StartOwn starts the local proxy over the user's own upstream. No account,
 // no API call, no billing. name is the saved upstream name ("" for an ad-hoc
-// URL); label is the user's country label for display, which Shellroute
-// cannot verify.
+// URL).
 //
 // Unless opts.SkipExitIP is set, the upstream is checked first: one tunnel
 // attempt and one retry, each bounded by the dial timeout. A tunnel failure
 // returns the *proxy.DialError; when the tunnel opened but no exit IP could be
-// read, the session starts and ProbeWarning says why.
-func StartOwn(ctx context.Context, up proxy.Upstream, name, label string, port int, opts StartOpts) (*Session, error) {
+// read, the session starts and ProbeWarning says why. The exit IP and the
+// country the exit info service reports for it are recorded as observed.
+func StartOwn(ctx context.Context, up proxy.Upstream, name string, port int, opts StartOpts) (*Session, error) {
 	port, err := reservePort(port)
 	if err != nil {
 		return nil, err
@@ -239,7 +240,6 @@ func StartOwn(ctx context.Context, up proxy.Upstream, name, label string, port i
 	}
 	s := &Session{
 		ID:           "own-" + id,
-		Country:      label,
 		Mode:         opts.Mode,
 		Own:          true,
 		UpstreamName: name,
@@ -269,7 +269,10 @@ func StartOwn(ctx context.Context, up proxy.Upstream, name, label string, port i
 		switch {
 		case err == nil:
 			s.SetExitIP(res.ExitIP)
+			s.Country = res.Country
 			s.ConnectMs = int(res.Latency.Milliseconds())
+			// Record what was observed so status and stop can show it.
+			s.writeInfoFile()
 		case proxy.TunnelFailed(err):
 			cancel()
 			s.removeInfoFile()

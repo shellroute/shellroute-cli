@@ -12,10 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	upstreamAddCountry string
-	upstreamAddNote    string
-)
+var upstreamAddNote string
 
 var upstreamCmd = &cobra.Command{
 	Use:   "upstream",
@@ -23,14 +20,15 @@ var upstreamCmd = &cobra.Command{
 	Long: `Save proxies you already have and route through them with no Shellroute account.
 
 Save one, then use its name wherever a country goes:
-  shellroute upstream add work http://user:pass@proxy.example.com:8080 --country DE
+  shellroute upstream add work http://user:pass@proxy.example.com:8080
   shellroute run work -- curl https://ipinfo.io/ip
   shellroute proxy --upstream work
   shellroute                                   # then /connect work
 
 URL schemes: http, https (TLS to the proxy), socks5, socks5h. The port is
 required. Credentials go in the URL, URL-encoded. The child command only ever
-sees the local proxy on 127.0.0.1; your proxy's password never reaches it.`,
+sees the local proxy on 127.0.0.1; your proxy's password never reaches it.
+Where the proxy exits is observed when a route starts, not declared.`,
 }
 
 var upstreamAddCmd = &cobra.Command{
@@ -62,7 +60,6 @@ var upstreamTestCmd = &cobra.Command{
 }
 
 func init() {
-	upstreamAddCmd.Flags().StringVar(&upstreamAddCountry, "country", "", "Country label shown in status (not verified)")
 	upstreamAddCmd.Flags().StringVar(&upstreamAddNote, "note", "", "Free-text note")
 	upstreamCmd.AddCommand(upstreamAddCmd, upstreamListCmd, upstreamRemoveCmd, upstreamTestCmd)
 }
@@ -75,18 +72,11 @@ func runUpstreamAdd(cmd *cobra.Command, args []string) error {
 	if _, err := proxy.ParseUpstreamURL(rawURL); err != nil {
 		return err
 	}
-	country := ""
-	if upstreamAddCountry != "" {
-		country = config.NormalizeCountry(upstreamAddCountry)
-		if err := config.ValidateCountry(country); err != nil {
-			return err
-		}
-	}
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}
-	replaced := cfg.AddUpstream(config.Upstream{Name: name, URL: strings.TrimSpace(rawURL), Country: country, Note: upstreamAddNote})
+	replaced := cfg.AddUpstream(config.Upstream{Name: name, URL: strings.TrimSpace(rawURL), Note: upstreamAddNote})
 	if err := config.Save(cfg); err != nil {
 		return err
 	}
@@ -109,9 +99,9 @@ func runUpstreamList(cmd *cobra.Command, args []string) error {
 	}
 	rows := make([][]string, 0, len(cfg.Upstreams))
 	for _, u := range cfg.Upstreams {
-		rows = append(rows, []string{u.Name, proxy.RedactURL(u.URL), u.Country, u.Note})
+		rows = append(rows, []string{u.Name, proxy.RedactURL(u.URL), u.Note})
 	}
-	headers := []string{"NAME", "URL", "COUNTRY", "NOTE"}
+	headers := []string{"NAME", "URL", "NOTE"}
 	widths := make([]int, len(headers))
 	for i, h := range headers {
 		widths[i] = len(h)
@@ -166,8 +156,8 @@ func runUpstreamTest(cmd *cobra.Command, args []string) error {
 	switch {
 	case err == nil:
 		where := ""
-		if t.label != "" {
-			where = " (" + t.label + ")"
+		if res.Country != "" {
+			where = " · " + res.Country + " (observed)"
 		}
 		display.Success("via %s · exit IP %s%s · %d ms", t.describe(), res.ExitIP, where, res.Latency.Milliseconds())
 		return nil

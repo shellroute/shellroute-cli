@@ -29,7 +29,7 @@ func (c *Controller) httpConnectOwn(w http.ResponseWriter, name string) {
 	c.mu.Unlock()
 
 	// Start on a temp port; the old session keeps running until the new one works.
-	sess, err := StartOwn(context.Background(), up, name, entry.Country, 0, StartOpts{})
+	sess, err := StartOwn(context.Background(), up, name, 0, StartOpts{})
 	if err != nil {
 		if proxy.TunnelFailed(err) {
 			fmt.Fprintf(w, "ERROR Cannot connect through %s: %s\n", name, proxy.Cause(err))

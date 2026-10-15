@@ -6,11 +6,11 @@ Route a command or an interactive shell through a proxy you already have. No She
 
 ```bash
 # Save it once. The URL carries the credentials.
-shellroute upstream add work http://user:pass@proxy.example.com:8080 --country DE
+shellroute upstream add work http://user:pass@proxy.example.com:8080
 
-# Check it: opens one tunnel and reports the exit IP.
+# Check it: opens one tunnel and reports the exit IP and where it appears to be.
 shellroute upstream test work
-#   ✓ via work · exit IP 91.198.0.12 (DE) · 212 ms
+#   ✓ via work · exit IP 91.198.0.12 · DE (observed) · 212 ms
 
 # Use its name wherever a country goes.
 shellroute run work -- curl https://ipinfo.io/json
@@ -55,7 +55,7 @@ In this order:
 4. Any other word before `--`: one of your saved upstreams.
 5. Nothing given: `SHELLROUTE_PROXY` from the environment if set, else `default_country` from the config.
 
-`--country` on `upstream add` is a label. Shellroute cannot know where a third-party proxy exits, so the label is shown as `work (DE)` in status output and nowhere verified.
+There is no country setting for an own proxy. Shellroute cannot know where a third-party proxy exits, so it looks instead: when a route starts, the exit IP service that returns the IP also reports a country for it, and that is shown as `DE (observed)` in `upstream test`, `run`, `status` and the shell prompt. It is a measurement from a public geo-IP database, usually right and occasionally wrong, and it is empty when the service does not report one.
 
 ## What stays the same
 
@@ -66,7 +66,7 @@ Your proxy's password never reaches the child process, its environment, your she
 ## What is different
 
 - No login, no balance, no cost line. The end-of-run summary shows duration and data only.
-- The exit IP comes from a probe through your proxy (ipinfo.io, then api.ipify.org). `--no-check` skips it; the route then starts without an exit IP line.
+- The exit IP and its observed country come from a probe through your proxy (ipinfo.io, then api.ipify.org). `--no-check` skips it; the route then starts without an exit IP line. On a rotating provider later requests may leave from other exits; the probe shows the first one only.
 - Rotation is your provider's job. In the shell, `/rotate` says so and does nothing; `/iptype`, `/sticky`, `/cities`, `/countries` and `/balance` answer "not applicable to your own upstream".
 - An `https://` proxy must present a certificate your system trusts. A self-signed certificate is refused; on Linux you can point `SSL_CERT_FILE` at the CA file for the run, on macOS the system keychain decides.
 
@@ -101,4 +101,4 @@ A `4xx` from the proxy for one target is forwarded to the client and does not co
 - `proxy URL needs a port`: add `:8080`, `:1080` or whatever your provider gives.
 - `proxy URL is not valid`: URL-encode special characters in the username or password (see above).
 - `upstream test` passes but a program is not routed: the program does not read the proxy environment variables. See the [compatibility matrix](compatibility.md).
-- `upstream test` reports an exit IP in the wrong country: the label is yours, the exit is the provider's. Check the username or port format in the provider's documentation.
+- `upstream test` reports an unexpected country: the exit is the provider's choice. Check the username or port format in the provider's documentation. Geo-IP databases also misplace some addresses.

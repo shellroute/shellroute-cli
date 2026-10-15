@@ -18,10 +18,10 @@ func ownController(t *testing.T) (*Controller, *proxytest.HTTPProxy) {
 	t.Setenv("SHELLROUTE_HOME", t.TempDir())
 	p := proxytest.StartHTTPProxy(t, "u", "p")
 	cfg := &config.Config{}
-	cfg.AddUpstream(config.Upstream{Name: "work", URL: "http://u:p@" + p.Addr, Country: "DE"})
+	cfg.AddUpstream(config.Upstream{Name: "work", URL: "http://u:p@" + p.Addr})
 	cfg.AddUpstream(config.Upstream{Name: "dead", URL: "http://127.0.0.1:1"})
 	ctrl := NewController(api.New("http://127.0.0.1:1", ""), cfg)
-	withExitIPEndpoints(t, echoIP(t, "203.0.113.4").URL)
+	withExitIPEndpoints(t, echoIP(t, `{"ip": "203.0.113.4", "country": "DE"}`).URL)
 	t.Cleanup(func() { ctrl.StopAndDisconnect() })
 	return ctrl, p
 }
@@ -151,13 +151,13 @@ func TestStatusOwn_ShowsUpstreamNotPassword(t *testing.T) {
 	w := httptest.NewRecorder()
 	ctrl.httpStatus(w, httptest.NewRequest("GET", "/status", nil))
 	body := w.Body.String()
-	for _, want := range []string{"Upstream: work (DE)", "Via:      http://u:***@", "Exit IP:  203.0.113.4", "Health:   healthy"} {
+	for _, want := range []string{"Upstream: work", "Via:      http://u:***@", "Exit IP:  203.0.113.4", "Country:  DE (observed)", "Health:   healthy"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("status lacks %q:\n%s", want, body)
 		}
 	}
-	if strings.Contains(body, "u:p@") || strings.Contains(body, "Country:") {
-		t.Errorf("status wrong:\n%s", body)
+	if strings.Contains(body, "u:p@") {
+		t.Errorf("status leaks the password:\n%s", body)
 	}
 }
 
