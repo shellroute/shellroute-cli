@@ -82,6 +82,7 @@ Starting a route makes one connection attempt with a 10 second timeout and one r
 | `proxy rejected credentials` | wrong username or password (HTTP 407 or SOCKS5 authentication failure) |
 | `proxy requires a username and password` | the SOCKS5 proxy wants credentials and the URL has none |
 | `proxy returned 403 Forbidden for CONNECT` | the proxy refused the target; its status is forwarded |
+| `proxy returned general failure (check the username and password)` | a SOCKS5 proxy that accepted the login exchange refused the connection; some providers answer a wrong password this way |
 | `not a SOCKS5 proxy` | the port speaks something else, often HTTP |
 | `proxy did not answer the CONNECT request` | the port speaks something else, often SOCKS |
 

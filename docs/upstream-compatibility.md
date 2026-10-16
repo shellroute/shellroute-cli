@@ -8,6 +8,8 @@ Usernames, passwords and account details are not recorded. Exit IPs are not reco
 |---|---|---|---|---|---|---|
 | 2026-10-16 | Webshare | free plan | http | an individual proxy address from the dashboard list, port as listed | pass | Fixed exit: the probe and every request observed the same IP, GB. `store.google.com` answered 301. Wrong password: "proxy rejected credentials", command not started. The shared gateway `p.webshare.io:80` rejected this free plan's credentials; the dashboard's per-proxy addresses worked. |
 | 2026-10-16 | Evomi | datacenter trial | http | `dcp.evomi.com:2000` | pass | Tunnel opened on the first attempt (about 0.4 s). Exits rotate per connection: the probe observed the US, the next request left from the Philippines. `store.google.com` answered 301. Wrong password: "proxy rejected credentials", command not started. Summary shows duration and data only. |
+| 2026-10-16 | Evomi | datacenter trial | https | `dcp.evomi-proxy.com:2001` | pass | TLS to the proxy with its public certificate, no extra setup. Tunnel in about 1.2 s. Exits rotate per connection (US, then Germany). `store.google.com` answered 302. Wrong password: "proxy rejected credentials". |
+| 2026-10-16 | Evomi | datacenter trial | socks5 | `dcp.evomi.com:2002` | pass | Tunnel in about 1.1 s. Exits rotate per connection (Malaysia, then GB). `store.google.com` answered 302. Wrong password: the proxy answers "general failure" at the connect step; the CLI reports "proxy returned general failure (check the username and password)" and does not start the command. |
 
 ## How to read the rotation note
 
