@@ -130,9 +130,10 @@ func (u *SOCKS5Upstream) handshake(conn net.Conn, host string, port int) error {
 	}
 	if head[1] != 0x00 {
 		msg := socksReplyText(head[1])
-		if head[1] == 0x02 && wantAuth {
+		if (head[1] == 0x01 || head[1] == 0x02) && wantAuth {
 			// Some servers accept the credentials exchange and refuse at the
-			// request instead when the password is wrong.
+			// request instead when the password is wrong: 3proxy answers
+			// "not allowed by ruleset", others "general failure".
 			msg += " (check the username and password)"
 		}
 		return &DialError{Kind: KindProxyStatus, Status: int(head[1]), Msg: msg}
