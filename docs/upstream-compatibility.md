@@ -1,0 +1,25 @@
+# Own proxy providers: what has been tested
+
+Results of running the bring-your-own-proxy commands against real proxy providers. Each row is one provider endpoint and scheme, tested with the same five commands: `upstream add`, `upstream test`, `run … curl https://ipinfo.io/json`, `run … curl -I https://store.google.com/`, and a wrong-password run that must be refused before the command starts. A provider missing here has not been tested, which says nothing about whether it works.
+
+Usernames, passwords and account details are not recorded. Exit IPs are not recorded either; the pool changes.
+
+| Date | Provider | Plan | Scheme | Endpoint | Result | Notes |
+|---|---|---|---|---|---|---|
+| 2026-10-16 | Evomi | datacenter trial | http | `dcp.evomi.com:2000` | pass | Tunnel opened on the first attempt (about 0.4 s). Exits rotate per connection: the probe observed the US, the next request left from the Philippines. `store.google.com` answered 301. Wrong password: "proxy rejected credentials", command not started. Summary shows duration and data only. |
+
+## How to read the rotation note
+
+With a rotating pool every connection may leave from a different exit, and often a different country. `upstream test` and the `via …` line at the start of `run` show the first exit only. If you need one country, select it the way the provider documents, usually through the username or a dedicated port, and check the result with `curl https://ipinfo.io/json` through the route.
+
+## Retesting
+
+```bash
+shellroute upstream add work <provider url>
+shellroute upstream test work
+shellroute run work -- curl -sS https://ipinfo.io/json
+shellroute run work -- curl -sS -I https://store.google.com/
+shellroute run --proxy <same url with a wrong password> -- true    # must be refused
+```
+
+Add a row with the date, provider, plan, scheme and endpoint. Record what happened, never the credentials.
