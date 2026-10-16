@@ -39,7 +39,7 @@ Examples:
   shellroute run GB -- wget https://example.com
 
 Your own proxy (no account needed):
-  shellroute run work -- curl https://httpbin.org/ip          # saved with 'shellroute upstream add'
+  shellroute run your-proxy-name -- curl https://httpbin.org/ip   # the alias saved with 'shellroute upstream add'
   shellroute run --proxy socks5://127.0.0.1:1080 -- curl https://httpbin.org/ip
   SHELLROUTE_PROXY=http://user:pass@proxy:8080 shellroute run -- curl https://httpbin.org/ip`,
 	Args: cobra.MinimumNArgs(1),

@@ -18,10 +18,10 @@ With a rotating pool every connection may leave from a different exit, and often
 ## Retesting
 
 ```bash
-shellroute upstream add work <provider url>
-shellroute upstream test work
-shellroute run work -- curl -sS https://ipinfo.io/json
-shellroute run work -- curl -sS -I https://store.google.com/
+shellroute upstream add your-proxy-name <provider url>     # your-proxy-name: any alias you choose
+shellroute upstream test your-proxy-name
+shellroute run your-proxy-name -- curl -sS https://ipinfo.io/json
+shellroute run your-proxy-name -- curl -sS -I https://store.google.com/
 shellroute run --proxy <same url with a wrong password> -- true    # must be refused
 ```
 

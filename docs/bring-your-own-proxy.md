@@ -4,29 +4,31 @@ Route a command or an interactive shell through a proxy you already have. No She
 
 ## Save a proxy and use it
 
+`your-proxy-name` in every example is a placeholder for the alias you choose when saving the proxy. Pick any name of 3 to 32 characters: lowercase letters, digits, `_` or `-`. `USER`, `PASSWORD`, `HOST` and `PORT` are the values your provider gives you.
+
 ```bash
 # Save it once. The URL carries the credentials.
-shellroute upstream add work http://user:pass@proxy.example.com:8080
+shellroute upstream add your-proxy-name http://USER:PASSWORD@HOST:PORT
 
 # Check it: opens one tunnel and reports the exit IP and where it appears to be.
-shellroute upstream test work
-#   ✓ via work · exit IP 91.198.0.12 · DE (observed) · 212 ms
+shellroute upstream test your-proxy-name
+#   ✓ via your-proxy-name · exit IP 91.198.0.12 · DE (observed) · 212 ms
 
-# Use its name wherever a country goes.
-shellroute run work -- curl https://ipinfo.io/json
-shellroute proxy --upstream work          # persistent local proxy on 127.0.0.1:41900
-shellroute                                # interactive shell, then: /connect work
+# Use the alias wherever a country goes.
+shellroute run your-proxy-name -- curl https://ipinfo.io/json
+shellroute proxy --upstream your-proxy-name   # persistent local proxy on 127.0.0.1:41900
+shellroute                                    # interactive shell, then: /connect your-proxy-name
 
-shellroute upstream list                  # passwords shown as ***
-shellroute upstream remove work
+shellroute upstream list                      # passwords shown as ***
+shellroute upstream remove your-proxy-name
 ```
 
 Without saving:
 
 ```bash
 shellroute run --proxy socks5://127.0.0.1:1080 -- curl https://ipinfo.io/json
-SHELLROUTE_PROXY=http://user:pass@proxy.example.com:8080 shellroute run -- curl https://ipinfo.io/json   # CI
-shellroute upstream test https://user:pass@proxy.example.com:443
+SHELLROUTE_PROXY=http://USER:PASSWORD@HOST:PORT shellroute run -- curl https://ipinfo.io/json   # CI
+shellroute upstream test https://USER:PASSWORD@HOST:443
 ```
 
 ## Proxy URLs
@@ -43,7 +45,7 @@ shellroute upstream test https://user:pass@proxy.example.com:443
 - IPv6 hosts go in brackets: `http://[2001:db8::1]:8080`.
 - Your provider's documentation gives the hostname, port and username format. Many providers select the country or a sticky session through the username; paste it into the URL as given, URL-encoded.
 
-Saved names are 3 to 32 characters: lowercase letters, digits, `_` or `-`. A name can never look like a two-letter country code, so `shellroute run work` and `shellroute run DE` never collide.
+Saved names are 3 to 32 characters: lowercase letters, digits, `_` or `-`. A name can never look like a two-letter country code, so `shellroute run your-proxy-name` and `shellroute run DE` never collide.
 
 ## How `shellroute run` picks the route
 
@@ -92,13 +94,13 @@ While a route runs, each client request opens its own tunnel through your proxy.
 
 - `shellroute run`: active connections are closed and the command is killed, with "Connection lost during execution. Command killed.", exactly as with a hosted route. There is no retry that could make a half-run script look successful.
 - `shellroute proxy --upstream`: clients get `503` until you restart it.
-- the interactive shell: the prompt shows "Connection lost through work. Run /connect." and blocks commands until you reconnect.
+- the interactive shell: the prompt shows "Connection lost through your-proxy-name. Run /connect." and blocks commands until you reconnect.
 
 A `4xx` from the proxy for one target is forwarded to the client and does not count towards route death.
 
 ## Troubleshooting
 
-- `unknown upstream "work"`: it is not saved. `shellroute upstream list` shows what is; `shellroute upstream add work <url>` saves it.
+- `unknown upstream "your-proxy-name"`: nothing is saved under that alias. `shellroute upstream list` shows what is; `shellroute upstream add your-proxy-name <url>` saves it.
 - `proxy URL needs a port`: add `:8080`, `:1080` or whatever your provider gives.
 - `proxy URL is not valid`: URL-encode special characters in the username or password (see above).
 - `upstream test` passes but a program is not routed: the program does not read the proxy environment variables. See the [compatibility matrix](compatibility.md).

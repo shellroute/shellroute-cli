@@ -67,8 +67,9 @@ shellroute run DE -- curl https://ipinfo.io/json
 | `shellroute run <country> -- <cmd>` | Run one command through the proxy |
 | `shellroute proxy --country <code>` | Persistent proxy (blocks until Ctrl+C) |
 | `shellroute proxy stop` | Stop running proxy sessions |
-| `shellroute run <upstream> -- <cmd>` | Run one command through your own proxy |
-| `shellroute upstream add\|list\|remove\|test` | Manage your own proxies |
+| `shellroute run your-proxy-name -- <cmd>` | Run one command through your own proxy (`your-proxy-name` is the alias you saved) |
+| `shellroute proxy --upstream your-proxy-name` | Persistent local proxy over your own proxy |
+| `shellroute upstream add\|list\|remove\|test` | Save, list, delete and check your own proxies |
 
 #### Local proxy mode
 
@@ -83,17 +84,33 @@ curl -x http://127.0.0.1:41900 https://ipinfo.io/ip
 
 ### Use your own proxy
 
-Already pay a proxy provider, or run one? Save it and use its name wherever a country goes. No account needed.
+Already have a proxy, from a provider or your own server? Save it under a name you choose and use that name wherever a country code goes. No Shellroute account is needed and nothing is billed.
+
+`your-proxy-name` below is a placeholder: the alias you pick when saving the proxy, 3 to 32 characters of lowercase letters, digits, `_` or `-`. Replace `USER`, `PASSWORD`, `HOST` and `PORT` with what your provider gave you.
 
 ```bash
-shellroute upstream add work http://user:pass@proxy.example.com:8080
-shellroute upstream test work                     # via work · exit IP 91.198.0.12 · DE (observed) · 212 ms
-shellroute run work -- curl https://ipinfo.io/json
-shellroute proxy --upstream work
-shellroute run --proxy socks5://127.0.0.1:1080 -- curl https://ipinfo.io/json
+# 1. Save it. Schemes: http, https (TLS to the proxy), socks5, socks5h.
+shellroute upstream add your-proxy-name http://USER:PASSWORD@HOST:PORT
+
+# 2. Check it: one tunnel, exit IP, observed country, latency.
+shellroute upstream test your-proxy-name
+#   ✓ via your-proxy-name · exit IP 91.198.0.12 · DE (observed) · 212 ms
+
+# 3. Use it.
+shellroute run your-proxy-name -- curl https://ipinfo.io/json   # one command
+shellroute                                                       # interactive shell, then: /connect your-proxy-name
+shellroute proxy --upstream your-proxy-name                      # persistent local proxy on 127.0.0.1:41900
+
+# Without saving, for example in CI:
+shellroute run --proxy socks5://USER:PASSWORD@HOST:PORT -- curl https://ipinfo.io/json
+SHELLROUTE_PROXY=http://USER:PASSWORD@HOST:PORT shellroute run -- curl https://ipinfo.io/json
+
+# Manage saved proxies. Passwords are shown as ***.
+shellroute upstream list
+shellroute upstream remove your-proxy-name
 ```
 
-The command only ever sees the local proxy on `127.0.0.1`, so your proxy's credentials never reach it, your shell history or your CI logs. `http`, `https`, `socks5` and `socks5h` proxies work. [Details.](docs/bring-your-own-proxy.md)
+The command only ever sees the local proxy on `127.0.0.1`, so your proxy's credentials never reach it, your shell history or your CI logs. Where the proxy exits is observed when the route starts, not declared; a different exit per request is normal on rotating plans. Tested against 3proxy, gost, squid, SSH tunnels and the providers listed in [docs/upstream-compatibility.md](docs/upstream-compatibility.md). [Details.](docs/bring-your-own-proxy.md)
 
 ### Info
 

@@ -19,11 +19,14 @@ var upstreamCmd = &cobra.Command{
 	Short: "Use your own proxies",
 	Long: `Save proxies you already have and route through them with no Shellroute account.
 
-Save one, then use its name wherever a country goes:
-  shellroute upstream add work http://user:pass@proxy.example.com:8080
-  shellroute run work -- curl https://ipinfo.io/ip
-  shellroute proxy --upstream work
-  shellroute                                   # then /connect work
+Save one under an alias you choose (your-proxy-name below), then use that
+alias wherever a country code goes:
+  shellroute upstream add your-proxy-name http://USER:PASSWORD@HOST:PORT
+  shellroute run your-proxy-name -- curl https://ipinfo.io/ip
+  shellroute proxy --upstream your-proxy-name
+  shellroute                                   # then /connect your-proxy-name
+
+Aliases are 3 to 32 characters: lowercase letters, digits, _ or -.
 
 URL schemes: http, https (TLS to the proxy), socks5, socks5h. The port is
 required. Credentials go in the URL, URL-encoded. The child command only ever
