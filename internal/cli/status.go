@@ -12,6 +12,7 @@ import (
 	"github.com/shellroute/shellroute-cli/internal/api"
 	"github.com/shellroute/shellroute-cli/internal/config"
 	"github.com/shellroute/shellroute-cli/internal/display"
+	"github.com/shellroute/shellroute-cli/internal/session"
 	"github.com/spf13/cobra"
 )
 
@@ -37,7 +38,21 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	cfg, _ := loadConfig()
+
+	// Routes through the user's own proxies live only on this machine.
+	own := localOwnSessions()
+	if statusFormat == "human" {
+		printOwnSessions(cmd, own)
+	}
+
 	if cfg == nil || !cfg.HasAuth() {
+		if len(own) > 0 {
+			if statusFormat == "json" {
+				data, _ := json.MarshalIndent(map[string]interface{}{"own_sessions": own}, "", "  ")
+				fmt.Fprintln(cmd.OutOrStdout(), string(data))
+			}
+			return nil
+		}
 		display.Error("Not authenticated. Run `shellroute login` or use `--api-key`.")
 		return fmt.Errorf("not authenticated")
 	}
@@ -61,8 +76,9 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	if statusFormat == "json" {
 		out := map[string]interface{}{
-			"sessions": active,
-			"balance":  nil,
+			"sessions":     active,
+			"own_sessions": own,
+			"balance":      nil,
 		}
 		if bal != nil {
 			out["balance"] = map[string]interface{}{
@@ -71,7 +87,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			}
 		}
 		data, _ := json.MarshalIndent(out, "", "  ")
-		fmt.Println(string(data))
+		fmt.Fprintln(cmd.OutOrStdout(), string(data))
 		return nil
 	}
 
@@ -97,6 +113,58 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		display.Label("Balance", display.FormatBalance(bal.BalanceUSD))
 	}
 	return nil
+}
+
+// ownSessionInfo is one local session through the user's own proxy.
+type ownSessionInfo struct {
+	PID      int    `json:"pid"`
+	Upstream string `json:"upstream"`
+	Via      string `json:"via"`
+	Country  string `json:"country_observed,omitempty"`
+	ExitIP   string `json:"exit_ip,omitempty"`
+	Port     int    `json:"port"`
+	Mode     string `json:"mode,omitempty"`
+	Uptime   string `json:"uptime"`
+}
+
+// localOwnSessions lists live own-route sessions from the session files.
+func localOwnSessions() []ownSessionInfo {
+	infos, err := session.LoadActiveSessions()
+	if err != nil {
+		return nil
+	}
+	var out []ownSessionInfo
+	for _, s := range infos {
+		if s.Via == "" {
+			continue
+		}
+		name := s.Upstream
+		if name == "" {
+			name = "(url)"
+		}
+		out = append(out, ownSessionInfo{
+			PID: s.PID, Upstream: name, Via: s.Via, Country: s.Country, ExitIP: s.ExitIP,
+			Port: s.Port, Mode: s.Mode, Uptime: sessionDuration(s.StartTime),
+		})
+	}
+	return out
+}
+
+func printOwnSessions(cmd *cobra.Command, own []ownSessionInfo) {
+	if len(own) == 0 {
+		return
+	}
+	fmt.Fprintln(cmd.ErrOrStderr(), display.Bold(fmt.Sprintf("Own proxy sessions (%d):", len(own))))
+	for _, s := range own {
+		ip := s.ExitIP
+		if ip == "" {
+			ip = "exit IP unknown"
+		}
+		if s.Country != "" {
+			ip += " " + s.Country
+		}
+		fmt.Fprintf(cmd.ErrOrStderr(), "  PID %d  %s  %s  port %d  up %s\n", s.PID, s.Upstream, ip, s.Port, s.Uptime)
+	}
 }
 
 func runStatusInSession(ctrlPort string) error {

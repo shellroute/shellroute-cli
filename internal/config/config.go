@@ -27,6 +27,9 @@ type Config struct {
 	LogLevel        string `toml:"log_level"`
 	UsageWarnings   bool   `toml:"usage_warnings"`
 	AutoDisconnect  int    `toml:"auto_disconnect_at"`
+
+	// Upstreams are the user's own proxies, saved by `shellroute upstream add`.
+	Upstreams []Upstream `toml:"upstream,omitempty"`
 }
 
 // IsLocalMode returns true if ~/.shellroute-mode contains "local".

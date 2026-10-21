@@ -47,6 +47,25 @@ func TestHelperProcess(t *testing.T) {
 		os.Exit(0)
 	case "exit-from-signal":
 		exitFromSignal(signalByName(os.Getenv("SR_TEST_SIG")))
+	case "run-own":
+		// `shellroute run --proxy ... -- sh -c 'exit N'` with no account, no
+		// config file and the API URL pointing at a closed port.
+		rootCmd.SetArgs([]string{"run", "--proxy", "http://127.0.0.1:1", "--no-check", "--no-stat",
+			"--", "sh", "-c", "exit " + os.Getenv("SR_TEST_CHILD_EXIT")})
+		if err := rootCmd.Execute(); err != nil {
+			fmt.Println(err)
+			os.Exit(98)
+		}
+		os.Exit(0)
+	case "run-own-env":
+		// SHELLROUTE_PROXY selects the route; the command must not see it.
+		rootCmd.SetArgs([]string{"run", "--no-check", "--no-stat",
+			"--", "sh", "-c", `test -z "$SHELLROUTE_PROXY"`})
+		if err := rootCmd.Execute(); err != nil {
+			fmt.Println(err)
+			os.Exit(98)
+		}
+		os.Exit(0)
 	case "ignored-hup":
 		helperIgnoredHUP()
 	}

@@ -1,19 +1,15 @@
 package proxy
 
 import (
-	"bufio"
 	"context"
-	"crypto/tls"
-	"encoding/base64"
+	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/shellroute/shellroute-cli/internal/meter"
 )
@@ -26,23 +22,27 @@ const (
 	RouteDepleted int32 = 3
 )
 
-// Server is a local HTTP proxy that forwards traffic to a remote gateway.
+// Server is a local HTTP proxy that forwards traffic to an upstream: the
+// hosted gateway or a user's own proxy.
 type Server struct {
 	listenAddr      string
-	gatewayAddr     string
-	gatewayTLS      bool   // true = tls.Dial, false = net.Dial
-	gatewayAuth     string // base64-encoded "user:pass"
+	mu              sync.Mutex
+	upstream        Upstream
 	meter           *meter.Meter
 	listener        net.Listener
-	mu              sync.Mutex
 	activeConns     int
 	OnUpstreamDead  func(reason string) // called on upstream failure
-	OnExitIPChanged func(ip string)     // called when gateway reports a different exit IP
+	OnExitIPChanged func(ip string)     // called when the gateway reports a different exit IP
 	OnRelayDone     func()              // called after each relay ends
 	budget          atomic.Int64        // byte budget from API (-1 = unlimited)
 
 	// Route health gate — checked before every CONNECT/HTTP
 	routeState atomic.Int32 // RouteHealthy, RouteDead, RouteRotating, RouteDepleted
+
+	// A user's own proxy never reports route death, so consecutive failures
+	// are counted instead. 0 disables the counter (hosted gateway).
+	failureThreshold int
+	failures         atomic.Int32
 
 	// Tracked relay connections for run-mode force-close
 	trackedMu    sync.Mutex
@@ -53,33 +53,66 @@ type Server struct {
 // Config holds proxy server configuration.
 type Config struct {
 	ListenPort  int
-	GatewayAddr string // host:port of the gateway
-	GatewayTLS  bool   // use TLS when connecting to gateway
-	Token       string // gateway session token
+	Upstream    Upstream
 	Meter       *meter.Meter
 	ByteBudget  int64 // max bytes allowed (-1 = unlimited, 0 = blocked)
 	TrackRelays bool  // true = track active relay conns for force-close (run mode)
+	// FailureThreshold marks the route dead after this many consecutive
+	// upstream failures. 0 disables the counter; the hosted gateway reports
+	// death explicitly instead.
+	FailureThreshold int
 }
 
 func NewServer(cfg *Config) *Server {
-	auth := base64.StdEncoding.EncodeToString(
-		[]byte("_:" + cfg.Token),
-	)
 	budget := cfg.ByteBudget
 	if budget == 0 {
 		budget = -1
 	}
 	s := &Server{
-		listenAddr:   fmt.Sprintf("127.0.0.1:%d", cfg.ListenPort),
-		gatewayAddr:  cfg.GatewayAddr,
-		gatewayTLS:   cfg.GatewayTLS,
-		gatewayAuth:  auth,
-		meter:        cfg.Meter,
-		trackRelays:  cfg.TrackRelays,
-		trackedConns: make(map[net.Conn]struct{}),
+		listenAddr:       fmt.Sprintf("127.0.0.1:%d", cfg.ListenPort),
+		meter:            cfg.Meter,
+		trackRelays:      cfg.TrackRelays,
+		trackedConns:     make(map[net.Conn]struct{}),
+		failureThreshold: cfg.FailureThreshold,
 	}
 	s.budget.Store(budget)
+	s.SetUpstream(cfg.Upstream)
 	return s
+}
+
+// exitIPNotifier is implemented by upstreams that learn the exit IP from the
+// gateway on each tunnel.
+type exitIPNotifier interface {
+	setExitIPCallback(func(string))
+}
+
+// SetUpstream replaces the upstream with no listener gap and marks the route
+// healthy. Same port, new destination.
+func (s *Server) SetUpstream(u Upstream) {
+	if n, ok := u.(exitIPNotifier); ok {
+		n.setExitIPCallback(func(ip string) {
+			if s.OnExitIPChanged != nil {
+				s.OnExitIPChanged(ip)
+			}
+		})
+	}
+	s.mu.Lock()
+	s.upstream = u
+	s.mu.Unlock()
+	s.failures.Store(0)
+	s.routeState.Store(RouteHealthy)
+}
+
+// SwapUpstream replaces the hosted gateway credentials for rotation.
+func (s *Server) SwapUpstream(gatewayAddr string, gatewayTLS bool, token string) {
+	s.SetUpstream(NewHostedUpstream(gatewayAddr, gatewayTLS, token))
+}
+
+// Upstream returns the current upstream.
+func (s *Server) Upstream() Upstream {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.upstream
 }
 
 // RouteState returns the current route state.
@@ -129,18 +162,6 @@ func (s *Server) BytesTotal() int64 {
 // SetRouteRotating marks the route as rotating.
 func (s *Server) SetRouteRotating() {
 	s.routeState.Store(RouteRotating)
-}
-
-// SwapUpstream atomically replaces the gateway credentials for rotation.
-// No listener gap — same port, new upstream. Resets route state to healthy.
-func (s *Server) SwapUpstream(gatewayAddr string, gatewayTLS bool, token string) {
-	auth := base64.StdEncoding.EncodeToString([]byte("_:" + token))
-	s.mu.Lock()
-	s.gatewayAddr = gatewayAddr
-	s.gatewayTLS = gatewayTLS
-	s.gatewayAuth = auth
-	s.mu.Unlock()
-	s.routeState.Store(RouteHealthy)
 }
 
 // closeTrackedConns closes all active relay connections (run mode force-close).
@@ -277,93 +298,82 @@ func (s *Server) checkBudget(clientConn net.Conn) bool {
 	return false
 }
 
-// dialAndSendConnect dials the gateway and sends a CONNECT request for the target host.
-// Returns the gateway connection on success, or nil + handles error response to client.
-func (s *Server) dialAndSendConnect(clientConn net.Conn, targetHost string) net.Conn {
-	s.mu.Lock()
-	gwAddr := s.gatewayAddr
-	gwTLS := s.gatewayTLS
-	gwAuth := s.gatewayAuth
-	s.mu.Unlock()
-
-	gatewayConn, err := s.dialGatewayWith(gwAddr, gwTLS)
+// dialAndSendConnect opens a tunnel to targetHost through the current
+// upstream. On failure it answers the client and returns nil.
+func (s *Server) dialAndSendConnect(ctx context.Context, clientConn net.Conn, targetHost string) net.Conn {
+	up := s.Upstream()
+	if up == nil {
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		return nil
+	}
+	conn, err := up.DialTarget(ctx, targetHost)
 	if err != nil {
-		// Gateway dial failed — return 502 but do NOT mark route dead.
-		// The gateway is a Docker container and rarely goes down. Transient
-		// TCP failures (busy, timeout under load) should not poison the
-		// entire route for all subsequent requests. Only X-Route-Dead from
-		// the gateway (explicit tunnel death) should set RouteDead.
-		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		s.handleDialError(clientConn, err)
 		return nil
 	}
+	s.failures.Store(0)
+	return conn
+}
 
-	connectReq := fmt.Sprintf(
-		"CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: Basic %s\r\n\r\n",
-		targetHost, targetHost, gwAuth,
-	)
-	if _, err := gatewayConn.Write([]byte(connectReq)); err != nil {
-		gatewayConn.Close()
-		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
-		return nil
+// handleDialError answers the client and updates route state after an
+// upstream failure. Hosted replies keep their meaning (402 depleted, 407
+// token invalid, X-Route-Dead); a user's own proxy is marked dead on a
+// credentials error or after failureThreshold consecutive failures.
+func (s *Server) handleDialError(clientConn net.Conn, err error) {
+	var de *DialError
+	if !errors.As(err, &de) {
+		de = &DialError{Kind: KindDial, Err: err}
 	}
-
-	// Parse gateway response. Use bufio.Reader so we don't lose any tunnel
-	// data that arrives right after the HTTP response headers.
-	gwBuf := bufio.NewReader(gatewayConn)
-	resp, err := http.ReadResponse(gwBuf, nil)
-	if err != nil {
-		gatewayConn.Close()
-		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
-		return nil
-	}
-
-	switch {
-	case resp.StatusCode == http.StatusOK:
-		// Success — track exit IP
-		if ip := resp.Header.Get("X-Exit-IP"); ip != "" && s.OnExitIPChanged != nil {
-			s.OnExitIPChanged(ip)
-		}
-		// If the bufio.Reader buffered tunnel data beyond the HTTP headers,
-		// wrap the connection so relay reads from the buffer first.
-		if gwBuf.Buffered() > 0 {
-			return &bufferedConn{Conn: gatewayConn, r: gwBuf}
-		}
-		return gatewayConn
-
-	case resp.StatusCode == 402:
-		// Balance depleted
+	switch de.Kind {
+	case KindDepleted:
 		s.routeState.Store(RouteDepleted)
 		clientConn.Write([]byte("HTTP/1.1 402 Payment Required\r\n\r\nbalance_depleted"))
-		gatewayConn.Close()
 		s.upstreamDeadWithReason("depleted")
-		return nil
-
-	case resp.StatusCode == 407:
-		// Auth failure — session token invalid. Do NOT mark route dead.
+	case KindCredentials:
 		clientConn.Write([]byte("HTTP/1.1 407 Proxy Authentication Required\r\n\r\n"))
-		gatewayConn.Close()
+		if s.failureThreshold > 0 {
+			// Retrying cannot fix a wrong password.
+			s.SetRouteDead(s.trackRelays)
+		}
 		s.upstreamDeadWithReason("auth_invalid")
-		return nil
-
-	case resp.Header.Get("X-Route-Dead") == "true":
-		// Gateway says route/tunnel is dead
+	case KindRouteDead:
 		s.routeState.Store(RouteDead)
 		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
-		gatewayConn.Close()
 		s.upstreamDeadWithReason("connection_failed")
-		return nil
-
-	case resp.StatusCode >= 500:
-		// Transient gateway error — do NOT mark dead
-		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
-		gatewayConn.Close()
-		return nil
-
+	case KindProxyStatus:
+		switch {
+		case de.Status >= 500:
+			// Transient upstream error for one request.
+			clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+			s.noteFailure()
+		case de.Status >= 100:
+			// The proxy refused this target; forward its answer.
+			clientConn.Write([]byte(fmt.Sprintf("HTTP/1.1 %s\r\n\r\n", de.Msg)))
+		case de.Status == 2:
+			// SOCKS: connection not allowed by ruleset.
+			clientConn.Write([]byte("HTTP/1.1 403 Forbidden\r\n\r\n"))
+		default:
+			// SOCKS: target unreachable or refused.
+			clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		}
 	default:
-		// Other non-200 — forward to client, don't mark dead
-		clientConn.Write([]byte(fmt.Sprintf("HTTP/1.1 %s\r\n\r\n", resp.Status)))
-		gatewayConn.Close()
-		return nil
+		// The proxy could not be reached or did not speak the protocol.
+		// For the hosted gateway this is transient and never poisons the
+		// route; only an explicit X-Route-Dead does.
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		s.noteFailure()
+	}
+}
+
+// noteFailure counts a consecutive upstream failure for a user's own proxy
+// and marks the route dead at the threshold.
+func (s *Server) noteFailure() {
+	if s.failureThreshold <= 0 {
+		return
+	}
+	if int(s.failures.Add(1)) >= s.failureThreshold {
+		s.SetRouteDead(s.trackRelays)
+		s.upstreamDeadWithReason("connection_failed")
 	}
 }
 
@@ -383,28 +393,30 @@ func (s *Server) handleConnect(ctx context.Context, clientConn net.Conn, initial
 	parts := strings.SplitN(firstLine, " ", 3)
 	targetHost := parts[1]
 
-	gatewayConn := s.dialAndSendConnect(clientConn, targetHost)
-	if gatewayConn == nil {
+	upstreamConn := s.dialAndSendConnect(ctx, clientConn, targetHost)
+	if upstreamConn == nil {
 		return
 	}
-	defer gatewayConn.Close()
+	defer upstreamConn.Close()
 
 	clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 
 	// Track relay connection for run-mode force-close
-	s.trackConn(gatewayConn)
-	s.relay(ctx, clientConn, gatewayConn)
-	s.untrackConn(gatewayConn)
+	s.trackConn(upstreamConn)
+	s.relay(ctx, clientConn, upstreamConn)
+	s.untrackConn(upstreamConn)
 
 	if s.OnRelayDone != nil {
 		s.OnRelayDone()
 	}
 }
 
-// handleHTTP handles plain HTTP requests by forwarding to gateway.
+// handleHTTP handles plain HTTP requests. An HTTP proxy upstream takes the
+// request as-is in absolute form with its own Proxy-Authorization; any other
+// upstream gets a tunnel to the target and the request in origin form.
 // No explicit body size limit: the relay meters all bytes (billing is correct)
-// and the gateway's meteredConn enforces the byte budget. The idle timeout
-// (60s) bounds slow-drip attacks.
+// and the gateway enforces the byte budget. The idle timeout (60s) bounds
+// slow-drip attacks.
 func (s *Server) handleHTTP(ctx context.Context, clientConn net.Conn, initialData []byte) {
 	if s.checkRouteState(clientConn) {
 		return
@@ -413,141 +425,59 @@ func (s *Server) handleHTTP(ctx context.Context, clientConn net.Conn, initialDat
 		return
 	}
 
-	s.mu.Lock()
-	gwAuth := s.gatewayAuth
-	s.mu.Unlock()
-
-	gatewayConn, err := s.dialGateway()
-	if err != nil {
-		// Don't mark route dead on transient dial failure — matches handleConnect behavior.
-		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
-		return
-	}
-	defer gatewayConn.Close()
-
-	req := string(initialData)
-	authHeader := fmt.Sprintf("Proxy-Authorization: Basic %s\r\n", gwAuth)
-
-	if idx := strings.Index(req, "\r\n"); idx != -1 {
-		req = req[:idx+2] + authHeader + req[idx+2:]
-	}
-
-	s.meter.AddUp(int64(len(req)))
-	if _, err := gatewayConn.Write([]byte(req)); err != nil {
+	up := s.Upstream()
+	if up == nil {
 		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
 		return
 	}
 
-	s.trackConn(gatewayConn)
-	s.relay(ctx, clientConn, gatewayConn)
-	s.untrackConn(gatewayConn)
-}
-
-// relay copies data bidirectionally between two connections, metering bytes.
-func (s *Server) relay(ctx context.Context, client, remote net.Conn) {
-	done := make(chan struct{}, 2)
-
-	// Idle timeout: if no data flows in either direction for 60 seconds,
-	// close both sides. Without this, a dead WireGuard tunnel leaves the
-	// relay stuck indefinitely (especially over TLS where half-close doesn't
-	// propagate cleanly).
-	idleTimeout := 60 * time.Second
-	timer := time.AfterFunc(idleTimeout, func() {
-		client.Close()
-		remote.Close()
-	})
-	extend := func() {
-		timer.Reset(idleTimeout)
-	}
-
-	go func() {
-		copyWithIdleReset(&meteredWriter{remote, s.meter, true}, client, extend)
-		if tc, ok := remote.(*net.TCPConn); ok {
-			tc.CloseWrite()
-		}
-		done <- struct{}{}
-	}()
-
-	go func() {
-		copyWithIdleReset(&meteredWriter{client, s.meter, false}, remote, extend)
-		if tc, ok := client.(*net.TCPConn); ok {
-			tc.CloseWrite()
-		}
-		done <- struct{}{}
-	}()
-
-	select {
-	case <-done:
-		timer.Stop()
-	case <-ctx.Done():
-		timer.Stop()
-	}
-}
-
-// copyWithIdleReset copies from src to dst, calling onData after each chunk.
-func copyWithIdleReset(dst io.Writer, src io.Reader, onData func()) {
-	buf := make([]byte, 32*1024)
-	for {
-		n, err := src.Read(buf)
-		if n > 0 {
-			onData()
-			if _, wErr := dst.Write(buf[:n]); wErr != nil {
-				return
-			}
-		}
+	var upstreamConn net.Conn
+	var req []byte
+	if hp, ok := up.(HTTPProxyUpstream); ok {
+		conn, err := hp.DialProxy(ctx)
 		if err != nil {
+			s.handleDialError(clientConn, err)
 			return
 		}
+		upstreamConn = conn
+		req = initialData
+		if auth := hp.ProxyAuthorization(); auth != "" {
+			text := string(initialData)
+			if idx := strings.Index(text, "\r\n"); idx != -1 {
+				text = text[:idx+2] + "Proxy-Authorization: " + auth + "\r\n" + text[idx+2:]
+			}
+			req = []byte(text)
+		}
+	} else {
+		target, origin, err := originForm(initialData)
+		if err != nil {
+			clientConn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n"))
+			return
+		}
+		conn, err := up.DialTarget(ctx, target)
+		if err != nil {
+			s.handleDialError(clientConn, err)
+			return
+		}
+		upstreamConn = conn
+		req = origin
 	}
-}
+	defer upstreamConn.Close()
+	s.failures.Store(0)
 
-func (s *Server) dialGateway() (net.Conn, error) {
-	s.mu.Lock()
-	addr := s.gatewayAddr
-	tls := s.gatewayTLS
-	s.mu.Unlock()
-	return s.dialGatewayWith(addr, tls)
-}
-
-func (s *Server) dialGatewayWith(addr string, useTLS bool) (net.Conn, error) {
-	if useTLS {
-		return tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", addr, &tls.Config{})
+	s.meter.AddUp(int64(len(req)))
+	if _, err := upstreamConn.Write(req); err != nil {
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		return
 	}
-	return net.DialTimeout("tcp", addr, 10*time.Second)
+
+	s.trackConn(upstreamConn)
+	s.relay(ctx, clientConn, upstreamConn)
+	s.untrackConn(upstreamConn)
 }
 
 func (s *Server) upstreamDeadWithReason(reason string) {
 	if s.OnUpstreamDead != nil {
 		s.OnUpstreamDead(reason)
 	}
-}
-
-// meteredWriter wraps a writer and counts bytes.
-type meteredWriter struct {
-	w     io.Writer
-	meter *meter.Meter
-	isUp  bool
-}
-
-// bufferedConn wraps a net.Conn with a bufio.Reader, so that bytes already
-// buffered from HTTP response parsing are not lost during relay.
-type bufferedConn struct {
-	net.Conn
-	r *bufio.Reader
-}
-
-func (bc *bufferedConn) Read(p []byte) (int, error) {
-	return bc.r.Read(p)
-}
-
-func (mw *meteredWriter) Write(p []byte) (int, error) {
-	n, err := mw.w.Write(p)
-	if n > 0 {
-		if mw.isUp {
-			mw.meter.AddUp(int64(n))
-		} else {
-			mw.meter.AddDown(int64(n))
-		}
-	}
-	return n, err
 }

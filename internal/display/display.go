@@ -81,6 +81,23 @@ func WriteSessionSummary(w io.Writer, title string, durationSec int, bytesTotal 
 	fmt.Fprintln(w)
 }
 
+// OwnSessionSummary prints the end-of-session summary for a route through
+// the user's own proxy: duration and data only, nothing is billed.
+func OwnSessionSummary(title string, durationSec int, bytesTotal int64) {
+	WriteOwnSessionSummary(os.Stderr, title, durationSec, bytesTotal)
+}
+
+// WriteOwnSessionSummary writes the own-proxy session summary to w.
+func WriteOwnSessionSummary(w io.Writer, title string, durationSec int, bytesTotal int64) {
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "%s %s\n", successMark, title)
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "  %s\n", Bold("Session:"))
+	fmt.Fprintf(w, "  %s %s\n", labelStyle.Render("Duration:"), FormatDuration(durationSec))
+	fmt.Fprintf(w, "  %s %s\n", labelStyle.Render("Data used:"), FormatBytes(bytesTotal))
+	fmt.Fprintln(w)
+}
+
 func Blank() {
 	fmt.Fprintln(os.Stderr)
 }

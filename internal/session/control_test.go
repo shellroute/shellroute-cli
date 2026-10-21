@@ -59,10 +59,9 @@ func fakeSession(t *testing.T) *Session {
 		Country: "US",
 		Port:    port,
 		proxy: proxy.NewServer(&proxy.Config{
-			ListenPort:  port,
-			GatewayAddr: "localhost:0",
-			Token:       "test",
-			Meter:       &meter.Meter{},
+			ListenPort: port,
+			Upstream:   proxy.NewHostedUpstream("localhost:0", false, "test"),
+			Meter:      &meter.Meter{},
 		}),
 	}
 }
@@ -1559,7 +1558,7 @@ func TestStopAndDisconnect_IncludesAccumulated(t *testing.T) {
 	ctrl.accumCost = 0.20
 	ctrl.mu.Unlock()
 
-	resp := ctrl.StopAndDisconnect()
+	resp, _ := ctrl.StopAndDisconnect()
 	if resp == nil {
 		t.Fatal("expected response")
 	}

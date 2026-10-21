@@ -9,6 +9,7 @@ func writeShellFunctions(f *os.File) {
 	writeCleanupHelper(f)
 	writeSSHProxyHelper(f)
 	writeConnectFunc(f)
+	writeConnectUpstreamFunc(f)
 	writeDisconnectFunc(f)
 	writeRotateFunc(f)
 	writeSimpleCommands(f)
@@ -23,7 +24,7 @@ func writeCleanupHelper(f *os.File) {
 	f.WriteString(`
 _sr_cleanup_session() {
   unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
-  unset SHELLROUTE_SESSION_ID SHELLROUTE_COUNTRY SHELLROUTE_EXIT_IP SHELLROUTE_PORT SHELLROUTE_COUNTRY_NAME SHELLROUTE_CITY
+  unset SHELLROUTE_SESSION_ID SHELLROUTE_COUNTRY SHELLROUTE_EXIT_IP SHELLROUTE_PORT SHELLROUTE_COUNTRY_NAME SHELLROUTE_CITY SHELLROUTE_UPSTREAM
   if [ "$_SR_OWNS_NODE_PROXY" = "1" ] && [ "$NODE_USE_ENV_PROXY" = "1" ]; then
     unset NODE_USE_ENV_PROXY
   fi
@@ -78,9 +79,9 @@ func writeConnectFunc(f *os.File) {
   local country city_arg iptype sticky_flag connect_msg
   country=$(echo "$1" | tr '[:lower:]' '[:upper:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
   if [ ${#country} -ne 2 ]; then
-    echo -e "  \033[90mCountry must be a 2-letter code (e.g. US, GB, DE).\033[0m"
-    echo -e "  \033[90mUsage: /connect <country code> or /connect <country code> <city name>\033[0m"
-    return 1
+    # Not a country code: one of your own saved upstreams.
+    _sr_connect_upstream "$(echo "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    return $?
   fi
   [[ "$country" = "UK" ]] && country="GB"
   shift; city_arg="$*"
@@ -133,6 +134,39 @@ func writeConnectFunc(f *os.File) {
 `)
 }
 
+func writeConnectUpstreamFunc(f *os.File) {
+	f.WriteString(`
+_sr_connect_upstream() {
+  local name="$1"
+  case "$name" in
+    *[!a-z0-9_-]*|"")
+      echo -e "  \033[90mUnknown upstream: ${name}\033[0m"
+      echo -e "  \033[90mUsage: /connect <country code> or /connect <upstream name>. Save one with: shellroute upstream add <name> <url>\033[0m"
+      return 1 ;;
+  esac
+  unset _SR_KILLSWITCH_SHOWN
+  echo "  Connecting through ${name}..."
+  local result
+  result=$(curl -s --max-time 60 "http://127.0.0.1:${SHELLROUTE_CTRL}/connect?upstream=${name}" 2>&1)
+  local curl_rc=$?
+  if [ $curl_rc -ne 0 ] || echo "$result" | grep -q "^ERROR "; then
+    local err=$(echo "$result" | grep '^ERROR ' | sed 's/^ERROR //')
+    [ -z "$err" ] && err="Connection timed out. Try again."
+    echo "  ✗ ${err}"
+    return 1
+  fi
+  local warn=$(echo "$result" | grep '^PROBE_WARNING=' | cut -d= -f2-)
+  result=$(echo "$result" | grep -v '^PROBE_WARNING=')
+  eval "$result"
+  local where=""
+  [ -n "$SHELLROUTE_COUNTRY" ] && where=" (${SHELLROUTE_COUNTRY}, observed)"
+  echo "  ✓ Connected through ${SHELLROUTE_UPSTREAM} — exit IP: ${SHELLROUTE_EXIT_IP:-unknown}${where}"
+  [ -n "$warn" ] && echo -e "  \033[33m⚠ Exit IP unknown: ${warn}\033[0m"
+  return 0
+}
+`)
+}
+
 func writeDisconnectFunc(f *os.File) {
 	f.WriteString(`
 /disconnect() {
@@ -160,6 +194,10 @@ func writeRotateFunc(f *os.File) {
   if [ -z "$SHELLROUTE_SESSION_ID" ]; then
     echo "  Not connected."
     return 1
+  fi
+  if [ -n "$SHELLROUTE_UPSTREAM" ]; then
+    echo "  Rotate is only for Shellroute routes; your provider controls rotation."
+    return 0
   fi
   unset _SR_KILLSWITCH_SHOWN
   local iptype="${SHELLROUTE_IPTYPE:-residential}"
@@ -200,11 +238,21 @@ func writeSimpleCommands(f *os.File) {
   curl -sf "http://127.0.0.1:${SHELLROUTE_CTRL}/status"
 }
 
+_sr_own_route() {
+  if [ -n "$SHELLROUTE_UPSTREAM" ]; then
+    echo "  Not applicable to your own upstream."
+    return 0
+  fi
+  return 1
+}
+
 /balance() {
+  _sr_own_route && return 0
   curl -sf "http://127.0.0.1:${SHELLROUTE_CTRL}/balance"
 }
 
 /countries() {
+  _sr_own_route && return 0
   curl -sf "http://127.0.0.1:${SHELLROUTE_CTRL}/countries"
 }
 `)
@@ -216,6 +264,7 @@ func writeHelpFunc(f *os.File) {
   echo ""
   echo "  Session commands:"
   echo "  /connect <country> [city]   Connect and route traffic"
+  echo "  /connect <name>             Route through your own proxy (shellroute upstream add)"
   echo "  /disconnect                 Disconnect current session"
   echo "  /rotate                     Rotate to a new IP"
   echo "  /status                     Show session info"
@@ -242,6 +291,14 @@ func writeHelpFunc(f *os.File) {
   echo "  shellroute countries                          List available countries"
   echo "  shellroute cities <country>                   List cities in a country"
   echo ""
+  echo "  Your own proxies (no account needed):"
+  echo "  shellroute upstream add <name> <url>          Save a proxy (http, https, socks5, socks5h)"
+  echo "  shellroute upstream list                      List saved proxies, passwords hidden"
+  echo "  shellroute upstream test <name|url>           Check a proxy and show its exit IP"
+  echo "  shellroute upstream remove <name>             Delete a saved proxy"
+  echo "  shellroute run <name> -- <cmd>                Run a command through your proxy"
+  echo "  shellroute proxy --upstream <name>            Persistent local proxy over your proxy"
+  echo ""
 }
 `)
 }
@@ -261,6 +318,7 @@ func writeSSHFunc(f *os.File) {
 func writeSettingsCommands(f *os.File) {
 	f.WriteString(`
 /iptype() {
+  _sr_own_route && return 0
   if [ -z "$1" ]; then
     echo "  IP type: ${SHELLROUTE_IPTYPE:-residential}"
     echo -e "  \033[90mOptions: residential | datacenter | mix\033[0m"
@@ -278,6 +336,7 @@ func writeSettingsCommands(f *os.File) {
 }
 
 /sticky() {
+  _sr_own_route && return 0
   if [ -z "$1" ]; then
     echo "  Sticky: ${SHELLROUTE_STICKY:-off}"
     return
@@ -294,6 +353,7 @@ func writeSettingsCommands(f *os.File) {
 }
 
 /cities() {
+  _sr_own_route && return 0
   if [ -z "$1" ]; then
     echo -e "  \033[90mUsage: /cities <country>  (e.g. /cities US)\033[0m"
     return 1

@@ -33,6 +33,16 @@ run_stage "Go unit tests" go test -race ./...
 
 run_stage "Public audit" bash scripts/audit-public.sh
 
+# Own proxies: real proxy software in Docker (3proxy, gost, squid, ssh -D).
+# Needs a running Docker daemon; skipped, not failed, without one.
+if docker info >/dev/null 2>&1; then
+    run_stage "Own proxies in Docker" bash scripts/test-upstreams.sh
+else
+    echo "=== Own proxies in Docker ==="
+    echo "--- Own proxies in Docker: SKIP (Docker daemon not running) ---"
+    echo ""
+fi
+
 # Cross-compile check — catch platform-specific build failures
 run_stage "Cross-compile darwin/arm64" bash -c 'GOOS=darwin GOARCH=arm64 go build ./cmd/shellroute'
 run_stage "Cross-compile darwin/amd64" bash -c 'GOOS=darwin GOARCH=amd64 go build ./cmd/shellroute'

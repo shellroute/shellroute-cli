@@ -31,6 +31,10 @@ var rootCmd = &cobra.Command{
 		if name == "version" || name == "help" || name == "completion" {
 			return nil
 		}
+		// Own routes need no account and must work with the API unreachable.
+		if ownRouteSelected(cmd, args) {
+			return nil
+		}
 		cfg, _ := loadConfig()
 		if cfg != nil && !checkVersion(cfg) {
 			return fmt.Errorf("version too old")
@@ -53,8 +57,11 @@ var rootCmd = &cobra.Command{
 			return err
 		}
 		if !cfg.HasAuth() {
-			display.Error("Not authenticated. Run `shellroute login`.")
-			return fmt.Errorf("not authenticated")
+			if len(cfg.Upstreams) == 0 {
+				display.Error("Not authenticated. Run `shellroute login`, or save your own proxy with `shellroute upstream add`.")
+				return fmt.Errorf("not authenticated")
+			}
+			display.Warn("Not logged in. /connect <name> uses your saved upstreams; run `shellroute login` for Shellroute routes.")
 		}
 		tui.Version = Version()
 		return tui.Run(cfg)
@@ -78,6 +85,7 @@ func init() {
 	rootCmd.AddCommand(citiesCmd)
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(revealKeyCmd)
+	rootCmd.AddCommand(upstreamCmd)
 }
 
 // loadConfig loads config and applies the --api-key flag override.
@@ -112,7 +120,8 @@ func isHandledError(err error) bool {
 	case "not authenticated", "email required", "code required",
 		"country required", "nested session",
 		"api-key not supported in interactive mode",
-		"version too old", "proxy already running":
+		"version too old", "proxy already running",
+		"upstream unreachable", "upstream required":
 		return true
 	}
 	return false

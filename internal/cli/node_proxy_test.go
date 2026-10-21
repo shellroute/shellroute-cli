@@ -173,6 +173,22 @@ func TestUnionNoProxy_Deduplicates(t *testing.T) {
 	}
 }
 
+func TestBuildProxyEnv_DropsOwnProxyURL(t *testing.T) {
+	base := setEnv(os.Environ(), "SHELLROUTE_PROXY", "http://user:topsecret@proxy.example:8080")
+	env := buildProxyEnv(base, "http://127.0.0.1:41900")
+	if v := envLookup(env, "SHELLROUTE_PROXY"); v != "" {
+		t.Errorf("SHELLROUTE_PROXY reached the child: %q", v)
+	}
+	for _, e := range env {
+		if strings.Contains(e, "topsecret") {
+			t.Errorf("own-proxy password in the child environment: %q", e)
+		}
+	}
+	if envLookup(env, "HTTPS_PROXY") != "http://127.0.0.1:41900" {
+		t.Error("local proxy URL missing from the child environment")
+	}
+}
+
 // helpers
 
 func filterEnv(env []string, keys ...string) []string {

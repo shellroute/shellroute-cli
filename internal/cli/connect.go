@@ -44,6 +44,8 @@ func init() {
 	f.StringVar(&connectType, "iptype", "", "IP type: residential (default), datacenter, or mix")
 	f.StringVar(&connectFormat, "format", "json", "Output format: json, env")
 	f.BoolVar(&connectSticky, "sticky", false, "Keep same IP on reconnect")
+	f.StringVar(&connectUpstream, "upstream", "", "Use your own proxy: a saved upstream name or a proxy URL")
+	f.BoolVar(&connectNoCheck, "no-check", false, "Own proxy: skip the exit IP check")
 	connectCmd.AddCommand(proxyStopCmd)
 }
 
@@ -51,10 +53,6 @@ func runConnect(cmd *cobra.Command, args []string) error {
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
-	}
-	if !cfg.HasAuth() {
-		display.Error("Not authenticated. Run `shellroute login` or use `--api-key`.")
-		return fmt.Errorf("not authenticated")
 	}
 
 	// Validate format (json or env only — interactive mode is via `shellroute` + `/connect`)
@@ -75,15 +73,28 @@ func runConnect(cmd *cobra.Command, args []string) error {
 			display.Error("Another proxy session is already running:")
 			for _, s := range proxySessions {
 				dur := sessionDuration(s.StartTime)
+				who := s.Country
+				if s.Upstream != "" {
+					who = s.Upstream
+				}
 				if s.ExitIP != "" {
-					display.Error("  PID %d · %s · %s · port %d · %s", s.PID, s.Country, s.ExitIP, s.Port, dur)
+					display.Error("  PID %d · %s · %s · port %d · %s", s.PID, who, s.ExitIP, s.Port, dur)
 				} else {
-					display.Error("  PID %d · %s · port %d · %s", s.PID, s.Country, s.Port, dur)
+					display.Error("  PID %d · %s · port %d · %s", s.PID, who, s.Port, dur)
 				}
 			}
 			display.Error("Run `shellroute proxy stop` first.")
 			return fmt.Errorf("proxy already running")
 		}
+	}
+
+	if connectUpstream != "" {
+		return runConnectOwn(cfg)
+	}
+
+	if !cfg.HasAuth() {
+		display.Error("Not authenticated. Run `shellroute login` or use `--api-key`.")
+		return fmt.Errorf("not authenticated")
 	}
 
 	// Apply defaults
@@ -111,6 +122,45 @@ func runConnect(cmd *cobra.Command, args []string) error {
 	}
 
 	return runConnectHeadless(cfg, country)
+}
+
+// runConnectOwn starts the persistent local proxy over the user's own proxy.
+func runConnectOwn(cfg *config.Config) error {
+	target, err := resolveUpstreamRef(cfg, connectUpstream)
+	if err != nil {
+		return err
+	}
+	port := connectPort
+	if port == 0 {
+		port = cfg.DefaultPort
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	sigs := NewSignalHandler(cancel, syscall.SIGINT, syscall.SIGTERM)
+
+	sess, err := session.StartOwn(ctx, target.upstream, target.name, port,
+		session.StartOpts{Mode: "proxy", SkipExitIP: connectNoCheck})
+	if err != nil {
+		sigs.Stop()
+		return reportOwnStartError(target, err)
+	}
+
+	if sigs.StartupSignal() != 0 {
+		return waitAndDisconnect(sess, sigs)
+	}
+
+	if sess.ProbeWarning != "" {
+		display.Warn("Exit IP unknown (%s). Continuing.", sess.ProbeWarning)
+	}
+
+	switch connectFormat {
+	case "json":
+		outputJSON(sess)
+	case "env":
+		outputEnv(sess)
+	}
+
+	return waitAndDisconnect(sess, sigs)
 }
 
 func runConnectHeadless(cfg *config.Config, country string) error {
@@ -182,6 +232,10 @@ func waitAndDisconnect(sess *session.Session, sigs *SignalHandler) error {
 		return err
 	}
 
+	if sess.Own {
+		display.OwnSessionSummary("Disconnected.", resp.DurationSec, resp.BytesTotal)
+		return nil
+	}
 	display.SessionSummary("Disconnected.", resp.DurationSec, resp.BytesTotal, resp.CostUSD, resp.BalanceUSD)
 	return nil
 }
@@ -193,6 +247,15 @@ func outputJSON(sess *session.Session) {
 		"country":   sess.Country,
 		"city":      sess.City,
 		"type":      sess.Type,
+	}
+	if sess.Own {
+		who := sess.UpstreamName
+		if who == "" {
+			who = sess.Via
+		}
+		data["upstream"] = who
+		data["type"] = "own"
+		data["country_observed"] = sess.Country != ""
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
@@ -247,10 +310,14 @@ func runProxyStop(cmd *cobra.Command, args []string) error {
 			continue
 		}
 		dur := sessionDuration(s.StartTime)
+		who := s.Country
+		if s.Upstream != "" {
+			who = s.Upstream
+		}
 		if s.ExitIP != "" {
-			display.Info("Stopped PID %d · %s · %s · %s", s.PID, s.Country, s.ExitIP, dur)
+			display.Info("Stopped PID %d · %s · %s · %s", s.PID, who, s.ExitIP, dur)
 		} else {
-			display.Info("Stopped PID %d · %s · %s", s.PID, s.Country, dur)
+			display.Info("Stopped PID %d · %s · %s", s.PID, who, dur)
 		}
 		stopped++
 	}

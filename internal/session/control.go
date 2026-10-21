@@ -117,6 +117,10 @@ func (c *Controller) autoRotateWithContext(ctx context.Context) {
 		c.mu.Unlock()
 		return
 	}
+	if c.sess.Own {
+		c.mu.Unlock()
+		return
+	}
 	oldSessionID := c.sess.ID
 	c.mu.Unlock()
 
@@ -247,8 +251,9 @@ func (c *Controller) Stop() {
 }
 
 // StopAndDisconnect stops the controller and returns the final session
-// summary with accumulated stats from rotations. Returns nil if no session was active.
-func (c *Controller) StopAndDisconnect() *api.SessionEndResponse {
+// summary with accumulated stats from rotations, and whether the route was
+// the user's own proxy. Returns nil if no session was active.
+func (c *Controller) StopAndDisconnect() (*api.SessionEndResponse, bool) {
 	c.Stop()
 
 	c.mu.Lock()
@@ -263,7 +268,7 @@ func (c *Controller) StopAndDisconnect() *api.SessionEndResponse {
 	c.mu.Unlock()
 
 	if sess == nil {
-		return nil
+		return nil, false
 	}
 
 	resp, _ := sess.Stop()
@@ -272,7 +277,7 @@ func (c *Controller) StopAndDisconnect() *api.SessionEndResponse {
 		resp.BytesTotal += accumBytes
 		resp.CostUSD += accumCost
 	}
-	return resp
+	return resp, sess.Own
 }
 
 // Session returns the current session (nil if disconnected).
@@ -286,6 +291,10 @@ func (c *Controller) Session() *Session {
 
 // /connect?country=XX — returns env exports for eval
 func (c *Controller) httpConnect(w http.ResponseWriter, r *http.Request) {
+	if name := r.URL.Query().Get("upstream"); name != "" {
+		c.httpConnectOwn(w, name)
+		return
+	}
 	country := config.NormalizeCountry(r.URL.Query().Get("country"))
 	if country == "" {
 		w.WriteHeader(400)
@@ -368,35 +377,8 @@ func (c *Controller) httpConnect(w http.ResponseWriter, r *http.Request) {
 	// during setup are expected and should not trigger the kill switch.
 	c.wireUpstreamCallback(sess)
 
-	c.mu.Lock()
-	c.sess = sess
-	c.healthy = true
-	c.notifiedDead = false
-	c.successCount = 0
-	c.lowBalanceWarned = false
-	c.accumDuration = 0
-	c.accumBytes = 0
-	c.accumCost = 0
-	c.mu.Unlock()
-
-	proxyURL := sess.ProxyURL()
-	fmt.Fprintf(w, "export HTTP_PROXY=%s\n", proxyURL)
-	fmt.Fprintf(w, "export HTTPS_PROXY=%s\n", proxyURL)
-	fmt.Fprintf(w, "export http_proxy=%s\n", proxyURL)
-	fmt.Fprintf(w, "export https_proxy=%s\n", proxyURL)
-	// Union NO_PROXY + no_proxy + loopback, assign identical result to both.
-	w.Write([]byte(NoProxyUnionScript + "\n"))
-	fmt.Fprintln(w, `_sr_np=$(_sr_union_no_proxy); export NO_PROXY="$_sr_np"; export no_proxy="$_sr_np"; unset _sr_np`)
-	// Enable Node.js built-in fetch/http proxy support (Node 24.0+ fetch,
-	// 24.5+ http/https, backported to 22.21+; older versions ignore it).
-	// Only set if user hasn't configured it; track ownership for cleanup.
-	fmt.Fprintln(w, NodeProxyOwnershipScript)
-	fmt.Fprintf(w, "export SHELLROUTE_SESSION_ID=%s\n", sess.ID)
-	fmt.Fprintf(w, "export SHELLROUTE_COUNTRY=%s\n", sess.Country)
-	fmt.Fprintf(w, "export SHELLROUTE_COUNTRY_NAME=%s\n", shellQuote(c.countryName(sess.Country)))
-	fmt.Fprintf(w, "export SHELLROUTE_CITY=%s\n", shellQuote(sess.City))
-	fmt.Fprintf(w, "export SHELLROUTE_EXIT_IP=%s\n", sess.GetExitIP())
-	fmt.Fprintf(w, "export SHELLROUTE_PORT=%d\n", sess.Port)
+	c.adopt(sess)
+	c.writeConnectExports(w, sess)
 	if sess.LowBalance {
 		fmt.Fprintf(w, "LOW_BALANCE=%.2f\n", math.Floor(sess.BalanceUSD*100)/100)
 	}
@@ -432,6 +414,10 @@ func (c *Controller) httpDisconnect(w http.ResponseWriter, r *http.Request) {
 	c.accumCost = 0
 	c.mu.Unlock()
 
+	if sess.Own {
+		display.WriteOwnSessionSummary(w, "Disconnected.", totalDuration, totalBytes)
+		return
+	}
 	display.WriteSessionSummary(w, "Disconnected.", totalDuration, totalBytes, totalCost, resp.BalanceUSD)
 }
 
@@ -442,6 +428,11 @@ func (c *Controller) httpRotate(w http.ResponseWriter, r *http.Request) {
 		c.mu.Unlock()
 		w.WriteHeader(400)
 		fmt.Fprintln(w, "Not connected.")
+		return
+	}
+	if c.sess.Own {
+		c.mu.Unlock()
+		fmt.Fprintln(w, "NO_OTHER_IPS=Rotate is only for Shellroute routes; your provider controls rotation")
 		return
 	}
 	if !c.healthy {
@@ -644,7 +635,8 @@ func (c *Controller) httpRouteCheck(w http.ResponseWriter, r *http.Request) {
 	// Verify session via API when bytes changed or relay just ended.
 	// Only clear needsRouteVerify and update lastCheckedBytes after
 	// a successful API response — failed calls must retry next time.
-	if sess.Proxy() != nil {
+	// An own route has no server side: the local route state is all there is.
+	if sess.Proxy() != nil && !sess.Own {
 		currentBytes := sess.Proxy().BytesTotal()
 		c.mu.Lock()
 		needsVerify := c.needsRouteVerify || currentBytes != c.lastCheckedBytes
@@ -696,7 +688,7 @@ func (c *Controller) httpRotateAndWait(w http.ResponseWriter, r *http.Request) {
 	}
 
 	c.mu.Lock()
-	if c.sess == nil {
+	if c.sess == nil || c.sess.Own {
 		c.mu.Unlock()
 		fmt.Fprint(w, "failed")
 		return
@@ -767,8 +759,17 @@ func (c *Controller) httpStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	uptime := time.Since(c.sess.StartTime).Truncate(time.Second)
 
-	fmt.Fprintf(w, "  Country:  %s\n", c.sess.Country)
-	fmt.Fprintf(w, "  Exit IP:  %s\n", c.sess.GetExitIP())
+	if c.sess.Own {
+		fmt.Fprintf(w, "  Upstream: %s\n", c.sess.UpstreamName)
+		fmt.Fprintf(w, "  Via:      %s\n", c.sess.Via)
+		fmt.Fprintf(w, "  Exit IP:  %s\n", c.sess.GetExitIP())
+		if c.sess.Country != "" {
+			fmt.Fprintf(w, "  Country:  %s (observed)\n", c.sess.Country)
+		}
+	} else {
+		fmt.Fprintf(w, "  Country:  %s\n", c.sess.Country)
+		fmt.Fprintf(w, "  Exit IP:  %s\n", c.sess.GetExitIP())
+	}
 	fmt.Fprintf(w, "  Health:   %s\n", health)
 	fmt.Fprintf(w, "  Uptime:   %s\n", uptime)
 }
