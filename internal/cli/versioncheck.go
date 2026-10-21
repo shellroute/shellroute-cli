@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/shellroute/shellroute-cli/internal/api"
@@ -23,9 +24,12 @@ type versionCache struct {
 
 // checkVersion checks if the CLI version is up to date.
 // Returns true if the CLI should proceed, false if blocked (version too old).
+// Only a release number (X.Y.Z) is compared; "dev" and any other build label
+// (a git describe of a non-release tag, "(devel)") cannot be older than a
+// release and skip the check.
 func checkVersion(cfg *config.Config) bool {
 	v := Version()
-	if flagSkipVersionCheck || v == "dev" {
+	if flagSkipVersionCheck || !isReleaseVersion(v) {
 		return true
 	}
 
@@ -47,6 +51,25 @@ func checkVersion(cfg *config.Config) bool {
 		display.Warn("Update available: %s (you have %s). Run: %s", info.Latest, v, UpdateCommand())
 	}
 
+	return true
+}
+
+// isReleaseVersion reports whether v is a plain release number such as "0.2.0".
+func isReleaseVersion(v string) bool {
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	for _, p := range parts {
+		if p == "" {
+			return false
+		}
+		for _, r := range p {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+	}
 	return true
 }
 

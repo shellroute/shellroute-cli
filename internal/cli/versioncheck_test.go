@@ -87,6 +87,27 @@ func TestVersionFunctionReturnsClean(t *testing.T) {
 	}
 }
 
+func TestIsReleaseVersion(t *testing.T) {
+	for v, want := range map[string]bool{"0.2.0": true, "10.0.3": true, "dev": false, "skills": false, "(devel)": false, "0.2": false, "0.2.0-rc1": false, "": false} {
+		if got := isReleaseVersion(v); got != want {
+			t.Errorf("isReleaseVersion(%q) = %v, want %v", v, got, want)
+		}
+	}
+}
+
+// A build labelled from a non-release tag ("skills-v1.0.0-1-gabcdef" cleans to
+// "skills") used to compare as 0.0.0 and be blocked by the minimum version.
+func TestCheckVersionNonReleaseLabelSkips(t *testing.T) {
+	old := rawVersion
+	defer func() { rawVersion = old }()
+	for _, label := range []string{"skills-v1.0.0-1-gabcdef", "(devel)", "snapshot"} {
+		rawVersion = label
+		if !checkVersion(nil) {
+			t.Errorf("version label %q must not be blocked", label)
+		}
+	}
+}
+
 func TestCheckVersionDevSkips(t *testing.T) {
 	old := rawVersion
 	rawVersion = "dev"

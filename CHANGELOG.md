@@ -14,6 +14,7 @@ Bring your own proxy. Route a command or the interactive shell through a proxy y
 - A wrong password or three consecutive connection failures mark an own route dead and, in `run`, kill the command, as with a hosted route
 - Own routes work with no login and with the Shellroute API unreachable; the version check is skipped for them
 - Hosted routes are unchanged
+- A build whose version is not a release number (a developer build) is no longer blocked by the minimum version check
 
 ## v0.1.0
 
