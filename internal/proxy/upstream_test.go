@@ -898,6 +898,36 @@ func TestProbe_TunnelOKButNoIPIsNotTunnelFailure(t *testing.T) {
 	}
 }
 
+func TestProbe_FailureTextIsPlain(t *testing.T) {
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "<html>busy</html>")
+	}))
+	defer bad.Close()
+	withExitIPEndpoints(t, bad.URL)
+	_, err := Probe(context.Background(), &directUpstream{}, 5*time.Second)
+	if err == nil || err.Error() != "the exit IP service gave an unexpected reply" {
+		t.Fatalf("unexpected reply: err = %v", err)
+	}
+	if TunnelFailed(err) || Cause(err) != err.Error() {
+		t.Errorf("a probe failure is not a tunnel failure; Cause = %q", Cause(err))
+	}
+
+	block := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-block }))
+	defer slow.Close()
+	defer close(block)
+	withExitIPEndpoints(t, slow.URL)
+	_, err = Probe(context.Background(), &directUpstream{}, 200*time.Millisecond)
+	if err == nil || err.Error() != "the exit IP service did not answer in time" {
+		t.Fatalf("slow service: err = %v", err)
+	}
+	for _, leak := range []string{"http", "context deadline", "Get "} {
+		if strings.Contains(err.Error(), leak) {
+			t.Errorf("raw error text %q shown to the user: %q", leak, err)
+		}
+	}
+}
+
 func TestCheck_RetriesDialFailureOnce(t *testing.T) {
 	withExitIPEndpoints(t, "http://127.0.0.1:1/ip")
 	refused := &DialError{Kind: KindDial, Err: errors.New("refused")}

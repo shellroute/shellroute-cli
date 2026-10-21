@@ -59,9 +59,34 @@ func parseExitInfo(body []byte) (ip, country string) {
 	return "", ""
 }
 
+// ProbeError means the tunnel opened but no exit IP service answered usably.
+// Error is a sentence fit for the user; Err keeps the underlying cause for
+// errors.Is and errors.As.
+type ProbeError struct {
+	Msg string
+	Err error
+}
+
+func (e *ProbeError) Error() string { return e.Msg }
+func (e *ProbeError) Unwrap() error { return e.Err }
+
+const (
+	probeTimedOut    = "the exit IP service did not answer in time"
+	probeUnexpected  = "the exit IP service gave an unexpected reply"
+	probeUnreachable = "the exit IP service could not be reached through the proxy"
+)
+
+// probeFailure classifies a transport failure after the tunnel opened.
+func probeFailure(err error) *ProbeError {
+	if netCause(err) == "timeout" {
+		return &ProbeError{Msg: probeTimedOut, Err: err}
+	}
+	return &ProbeError{Msg: probeUnreachable, Err: err}
+}
+
 // Probe opens a tunnel through the upstream and asks an exit info service for
 // the exit IP and its country. A *DialError means the tunnel could not be
-// opened; any other error means the tunnel opened but no service returned a
+// opened; a *ProbeError means the tunnel opened but no service returned a
 // usable IP.
 func Probe(ctx context.Context, up Upstream, timeout time.Duration) (*ProbeResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -82,7 +107,7 @@ func Probe(ctx context.Context, up Upstream, timeout time.Duration) (*ProbeResul
 	for _, endpoint := range ExitInfoEndpoints {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
-			lastErr = err
+			lastErr = &ProbeError{Msg: probeUnreachable, Err: err}
 			continue
 		}
 		resp, err := client.Do(req)
@@ -91,7 +116,7 @@ func Probe(ctx context.Context, up Upstream, timeout time.Duration) (*ProbeResul
 			if errors.As(err, &de) {
 				return nil, de
 			}
-			lastErr = err
+			lastErr = probeFailure(err)
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -99,10 +124,10 @@ func Probe(ctx context.Context, up Upstream, timeout time.Duration) (*ProbeResul
 		if ip, country := parseExitInfo(body); ip != "" {
 			return &ProbeResult{ExitIP: ip, Country: country, Latency: time.Since(start)}, nil
 		}
-		lastErr = fmt.Errorf("unexpected reply from %s", endpoint)
+		lastErr = &ProbeError{Msg: probeUnexpected, Err: fmt.Errorf("unexpected reply from %s", endpoint)}
 	}
 	if lastErr == nil {
-		lastErr = errors.New("no exit IP service configured")
+		lastErr = &ProbeError{Msg: probeUnreachable, Err: errors.New("no exit IP service configured")}
 	}
 	return nil, lastErr
 }

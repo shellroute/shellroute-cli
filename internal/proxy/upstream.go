@@ -88,6 +88,10 @@ func (e *DialError) Unwrap() error { return e.Err }
 
 // Cause returns a short explanation of a dial failure for the user.
 func Cause(err error) string {
+	var pe *ProbeError
+	if errors.As(err, &pe) {
+		return pe.Msg
+	}
 	var de *DialError
 	if !errors.As(err, &de) {
 		return netCause(err)

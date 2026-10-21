@@ -280,6 +280,9 @@ const defaultNoProxy = "localhost,127.0.0.1,::1"
 // buildProxyEnv creates the child environment with proxy vars, NO_PROXY bypass,
 // and NODE_USE_ENV_PROXY for Node.js support. Preserves user-set values.
 func buildProxyEnv(base []string, proxyURL string) []string {
+	// The command must not see the own-proxy URL: it can carry a password,
+	// and the promise is that credentials never reach the child.
+	base = dropEnv(base, "SHELLROUTE_PROXY")
 	env := append(base,
 		"HTTP_PROXY="+proxyURL,
 		"HTTPS_PROXY="+proxyURL,
@@ -299,6 +302,17 @@ func buildProxyEnv(base []string, proxyURL string) []string {
 	}
 
 	return env
+}
+
+// dropEnv returns env without the variable key.
+func dropEnv(env []string, key string) []string {
+	out := make([]string, 0, len(env))
+	for _, e := range env {
+		if !strings.HasPrefix(e, key+"=") {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // unionNoProxy merges uppercase NO_PROXY, lowercase no_proxy, and required

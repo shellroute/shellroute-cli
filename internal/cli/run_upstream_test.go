@@ -150,6 +150,25 @@ func TestViaLine(t *testing.T) {
 	}
 }
 
+func TestRunOwn_ChildDoesNotSeeProxyURL(t *testing.T) {
+	res := runHelper(t, false,
+		"SR_TEST_HELPER=run-own-env",
+		"SHELLROUTE_HOME="+t.TempDir(),
+		"SHELLROUTE_API_KEY=",
+		"SHELLROUTE_API_URL=http://127.0.0.1:1",
+		"SHELLROUTE_PROXY=http://user:topsecret@127.0.0.1:1",
+	)
+	if res.sig != 0 {
+		t.Fatalf("killed by %v: %s", res.sig, res.out)
+	}
+	if res.code != 0 {
+		t.Errorf("the command saw SHELLROUTE_PROXY (exit %d)\n%s", res.code, res.out)
+	}
+	if strings.Contains(res.out, "topsecret") {
+		t.Errorf("own-proxy password in the output:\n%s", res.out)
+	}
+}
+
 func TestRunOwn_ExitCodeMatchesChild_NoAccount(t *testing.T) {
 	dir := t.TempDir()
 	env := []string{

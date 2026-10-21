@@ -57,6 +57,15 @@ func TestHelperProcess(t *testing.T) {
 			os.Exit(98)
 		}
 		os.Exit(0)
+	case "run-own-env":
+		// SHELLROUTE_PROXY selects the route; the command must not see it.
+		rootCmd.SetArgs([]string{"run", "--no-check", "--no-stat",
+			"--", "sh", "-c", `test -z "$SHELLROUTE_PROXY"`})
+		if err := rootCmd.Execute(); err != nil {
+			fmt.Println(err)
+			os.Exit(98)
+		}
+		os.Exit(0)
 	case "ignored-hup":
 		helperIgnoredHUP()
 	}

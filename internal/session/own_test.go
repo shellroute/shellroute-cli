@@ -124,6 +124,9 @@ func TestStartOwn_ProbeFailureStillStartsWithWarning(t *testing.T) {
 	if sess.ProbeWarning == "" {
 		t.Error("ProbeWarning should explain the missing exit IP")
 	}
+	if strings.Contains(sess.ProbeWarning, "http") || strings.Contains(sess.ProbeWarning, "Get ") {
+		t.Errorf("ProbeWarning shows a raw error: %q", sess.ProbeWarning)
+	}
 	if sess.GetExitIP() != "" {
 		t.Error("no exit IP should be set")
 	}

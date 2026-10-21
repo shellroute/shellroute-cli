@@ -168,7 +168,7 @@ func runUpstreamTest(cmd *cobra.Command, args []string) error {
 		display.Error("Cannot connect through %s: %s", t.describe(), proxy.Cause(err))
 		return errors.New("upstream unreachable")
 	default:
-		display.Warn("Tunnel open via %s, but the exit IP could not be read: %v", t.describe(), err)
+		display.Warn("Tunnel open via %s, but the exit IP could not be read: %s", t.describe(), proxy.Cause(err))
 		return nil
 	}
 }

@@ -190,7 +190,7 @@ func reportOwnStartError(t runTarget, err error) error {
 	if proxy.TunnelFailed(err) {
 		display.Error("Cannot connect through %s: %s", t.describe(), proxy.Cause(err))
 	} else {
-		display.Error("Cannot start the local proxy: %s", err)
+		display.Error("Cannot start the local proxy. Try again.")
 	}
 	return errors.New("upstream unreachable")
 }
