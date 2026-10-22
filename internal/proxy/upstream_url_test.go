@@ -230,3 +230,91 @@ func TestExplain_CredentialsRejectedCarriesHint(t *testing.T) {
 		t.Errorf("SOCKS5 without credentials: Explain = %q", Explain(err))
 	}
 }
+
+func TestParseUpstreamURL(t *testing.T) {
+	cases := []struct {
+		raw      string
+		wantType string
+		wantErr  string
+	}{
+		{"http://user:pass@proxy.example:8080", "*proxy.HTTPUpstream", ""},
+		{"HTTPS://proxy.example:443", "*proxy.HTTPUpstream", ""},
+		{"socks5://proxy.example:1080", "*proxy.SOCKS5Upstream", ""},
+		{"socks5h://u:p@[::1]:1080", "*proxy.SOCKS5Upstream", ""},
+		{"", "", "empty"},
+		{"proxy.example:8080", "", "needs a scheme"},
+		{"ftp://proxy.example:21", "", "unsupported proxy scheme"},
+		{"http://proxy.example", "", "needs a port"},
+		{"http://:8080", "", "needs a host"},
+		{"http://proxy.example:8080/path", "", "must not have a path"},
+		{"http://proxy.example:8080?x=1", "", "must not have a path"},
+		{"http://user:pa ss@host:1", "*proxy.HTTPUpstream", ""},
+		{"http://host:1 x", "", "not valid"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.raw, func(t *testing.T) {
+			up, err := ParseUpstreamURL(tc.raw)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v, want containing %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got := typeName(up); got != tc.wantType {
+				t.Errorf("type = %s, want %s", got, tc.wantType)
+			}
+		})
+	}
+}
+
+func TestParseSavedUpstreamURL_LegacyDecodesCredentialsAndRedactsLabel(t *testing.T) {
+	up, err := ParseSavedUpstreamURL("http://al%40ice:p%3Ass@proxy.example:8080", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := up.(*HTTPUpstream)
+	if h.addr != "proxy.example:8080" {
+		t.Errorf("addr = %q", h.addr)
+	}
+	if h.ProxyAuthorization() != "Basic YWxAaWNlOnA6c3M=" { // base64("al@ice:p:ss")
+		t.Errorf("auth = %q", h.ProxyAuthorization())
+	}
+	if strings.Contains(up.Describe(), "ss") || !strings.Contains(up.Describe(), "***") {
+		t.Errorf("Describe leaks the password: %q", up.Describe())
+	}
+}
+
+func TestParseUpstreamURL_ErrorsNeverContainPassword(t *testing.T) {
+	for _, raw := range []string{
+		"ftp://user:topsecret@h:1",
+		"http://user:topsecret@h",
+		"http://user:topsecret@h:1/path",
+	} {
+		_, err := ParseUpstreamURL(raw)
+		if err == nil {
+			t.Fatalf("%s: expected error", raw)
+		}
+		if strings.Contains(err.Error(), "topsecret") {
+			t.Errorf("error leaks password: %v", err)
+		}
+	}
+}
+
+func TestRedactURL(t *testing.T) {
+	cases := map[string]string{
+		"http://user:secret@h:8080":  "http://user:***@h:8080",
+		"socks5://h:1080":            "socks5://h:1080",
+		"http://user@h:8080":         "http://user@h:8080",
+		"https://u:p@[::1]:443":      "https://u:***@[::1]:443",
+		"not a url":                  "(invalid proxy URL)",
+		"http://user:se%40cret@h:80": "http://user:***@h:80",
+	}
+	for in, want := range cases {
+		if got := RedactURL(in); got != want {
+			t.Errorf("RedactURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
