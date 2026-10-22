@@ -13,6 +13,10 @@ type Upstream struct {
 	Name string `toml:"name"`
 	URL  string `toml:"url"`
 	Note string `toml:"note,omitempty"`
+	// Literal marks an entry saved by 0.2.1 or later: the username and
+	// password in URL are exactly as typed. Older entries hold them
+	// percent-encoded and are decoded when read.
+	Literal bool `toml:"literal,omitempty"`
 }
 
 // Upstream names are 3 to 32 characters of lowercase letters, digits,

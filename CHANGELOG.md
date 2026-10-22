@@ -2,6 +2,11 @@
 
 Dates are the npm publish dates. The same notes are at https://shellroute.com/changelog.
 
+## v0.2.1
+
+- Proxy credentials are taken exactly as written: a password with `/`, `#`, `?`, `%`, spaces or `@` no longer needs percent-encoding. Entries saved by 0.2.0 keep working.
+- When a proxy rejects the login, or the shell splits an unquoted URL, the error says what to do about it.
+
 ## v0.2.0 (2026-10-21)
 
 Bring your own proxy. Route a command or the interactive shell through a proxy you already have, with no Shellroute account.

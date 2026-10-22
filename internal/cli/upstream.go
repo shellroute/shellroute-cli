@@ -29,15 +29,17 @@ alias wherever a country code goes:
 Aliases are 3 to 32 characters: lowercase letters, digits, _ or -.
 
 URL schemes: http, https (TLS to the proxy), socks5, socks5h. The port is
-required. Credentials go in the URL, URL-encoded. The child command only ever
-sees the local proxy on 127.0.0.1; your proxy's password never reaches it.
-Where the proxy exits is observed when a route starts, not declared.`,
+required. Username and password go in the URL exactly as your provider gave
+them; wrap the URL in single quotes when they contain spaces or symbols. The
+child command only ever sees the local proxy on 127.0.0.1; your proxy's
+password never reaches it. Where the proxy exits is observed when a route
+starts, not declared.`,
 }
 
 var upstreamAddCmd = &cobra.Command{
 	Use:   "add <name> <url>",
 	Short: "Save your own proxy under a name",
-	Args:  cobra.ExactArgs(2),
+	Args:  exactArgsQuoted(2, "shellroute upstream add your-proxy-name 'scheme://user:password@host:port'"),
 	RunE:  runUpstreamAdd,
 }
 
@@ -58,8 +60,19 @@ var upstreamRemoveCmd = &cobra.Command{
 var upstreamTestCmd = &cobra.Command{
 	Use:   "test <name|url>",
 	Short: "Open one tunnel through a proxy and report its exit IP",
-	Args:  cobra.ExactArgs(1),
+	Args:  exactArgsQuoted(1, "shellroute upstream test 'scheme://user:password@host:port'"),
 	RunE:  runUpstreamTest,
+}
+
+// exactArgsQuoted is cobra.ExactArgs(n) that, given too many arguments,
+// explains the likely cause: the shell split an unquoted URL.
+func exactArgsQuoted(n int, example string) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) > n {
+			return fmt.Errorf("too many arguments. %s: %s", proxy.QuoteHint, example)
+		}
+		return cobra.ExactArgs(n)(cmd, args)
+	}
 }
 
 func init() {
@@ -79,7 +92,7 @@ func runUpstreamAdd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	replaced := cfg.AddUpstream(config.Upstream{Name: name, URL: strings.TrimSpace(rawURL), Note: upstreamAddNote})
+	replaced := cfg.AddUpstream(config.Upstream{Name: name, URL: strings.TrimSpace(rawURL), Note: upstreamAddNote, Literal: true})
 	if err := config.Save(cfg); err != nil {
 		return err
 	}
@@ -165,7 +178,7 @@ func runUpstreamTest(cmd *cobra.Command, args []string) error {
 		display.Success("via %s · exit IP %s%s · %d ms", t.describe(), res.ExitIP, where, res.Latency.Milliseconds())
 		return nil
 	case proxy.TunnelFailed(err):
-		display.Error("Cannot connect through %s: %s", t.describe(), proxy.Cause(err))
+		display.Error("Cannot connect through %s: %s", t.describe(), proxy.Explain(err))
 		return errors.New("upstream unreachable")
 	default:
 		display.Warn("Tunnel open via %s, but the exit IP could not be read: %s", t.describe(), proxy.Cause(err))

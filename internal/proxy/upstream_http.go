@@ -18,6 +18,7 @@ type HTTPUpstream struct {
 	useTLS    bool
 	tlsConfig *tls.Config // nil: verify against system roots
 	auth      string      // base64 "user:pass", "" when the proxy takes no credentials
+	credHint  string      // attached to a credentials rejection; set by ParseUpstreamURL
 	label     string
 	hosted    bool // interpret the hosted gateway's extra replies
 	timeout   time.Duration
@@ -117,7 +118,11 @@ func (u *HTTPUpstream) DialTarget(ctx context.Context, hostPort string) (net.Con
 		return nil, &DialError{Kind: KindDepleted, Status: resp.StatusCode}
 	case resp.StatusCode == http.StatusProxyAuthRequired:
 		conn.Close()
-		return nil, &DialError{Kind: KindCredentials, Status: resp.StatusCode}
+		de := &DialError{Kind: KindCredentials, Status: resp.StatusCode, Hint: u.credHint}
+		if u.auth == "" {
+			de.Msg = "proxy requires a username and password"
+		}
+		return nil, de
 	case u.hosted && resp.Header.Get("X-Route-Dead") == "true":
 		conn.Close()
 		return nil, &DialError{Kind: KindRouteDead, Status: resp.StatusCode}

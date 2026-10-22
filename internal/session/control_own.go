@@ -17,7 +17,7 @@ func (c *Controller) httpConnectOwn(w http.ResponseWriter, name string) {
 		fmt.Fprintf(w, "ERROR Unknown upstream %q. Save it with: shellroute upstream add %s <url>\n", name, name)
 		return
 	}
-	up, err := proxy.ParseUpstreamURL(entry.URL)
+	up, err := proxy.ParseSavedUpstreamURL(entry.URL, entry.Literal)
 	if err != nil {
 		w.WriteHeader(400)
 		fmt.Fprintf(w, "ERROR Saved upstream %q has an invalid URL. Remove it and add it again.\n", name)
@@ -32,7 +32,7 @@ func (c *Controller) httpConnectOwn(w http.ResponseWriter, name string) {
 	sess, err := StartOwn(context.Background(), up, name, 0, StartOpts{})
 	if err != nil {
 		if proxy.TunnelFailed(err) {
-			fmt.Fprintf(w, "ERROR Cannot connect through %s: %s\n", name, proxy.Cause(err))
+			fmt.Fprintf(w, "ERROR Cannot connect through %s: %s\n", name, proxy.Explain(err))
 		} else {
 			fmt.Fprintln(w, "ERROR Cannot start the local proxy. Try again.")
 		}

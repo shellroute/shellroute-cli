@@ -41,9 +41,10 @@ shellroute upstream test https://USER:PASSWORD@HOST:443
 | `socks5h://host:port` | the same as `socks5://` |
 
 - The port is required.
-- Credentials go in the URL: `scheme://user:pass@host:port`. URL-encode special characters: `@` becomes `%40`, `:` becomes `%3A`, `/` becomes `%2F`, `#` becomes `%23`.
+- Credentials go in the URL: `scheme://user:password@host:port`. Username and password are taken exactly as written, any character. Wrap the URL in single quotes when it contains spaces or shell characters such as `$`, `!`, `&`, `;` or `#`: `shellroute upstream add your-proxy-name 'http://USER:PASSWORD@HOST:PORT'`.
+- Entries saved by versions before 0.2.1 hold percent-encoded passwords and keep working.
 - IPv6 hosts go in brackets: `http://[2001:db8::1]:8080`.
-- Your provider's documentation gives the hostname, port and username format. Many providers select the country or a sticky session through the username; paste it into the URL as given, URL-encoded.
+- Your provider's documentation gives the hostname, port and username format. Many providers select the country or a sticky session through the username; paste it into the URL as given.
 
 Saved names are 3 to 32 characters: lowercase letters, digits, `_` or `-`. A name can never look like a two-letter country code, so `shellroute run your-proxy-name` and `shellroute run DE` never collide.
 
@@ -102,6 +103,7 @@ A `4xx` from the proxy for one target is forwarded to the client and does not co
 
 - `unknown upstream "your-proxy-name"`: nothing is saved under that alias. `shellroute upstream list` shows what is; `shellroute upstream add your-proxy-name <url>` saves it.
 - `proxy URL needs a port`: add `:8080`, `:1080` or whatever your provider gives.
-- `proxy URL is not valid`: URL-encode special characters in the username or password (see above).
+- `proxy URL is not valid`: the host part is wrong. The format is `scheme://user:password@host:port`. If the shell split the URL at a space or a symbol, wrap it in single quotes.
+- the proxy rejects the username or password: compare them with what your provider gave you. A password percent-encoded for an older version is now taken as written; type the real characters.
 - `upstream test` passes but a program is not routed: the program does not read the proxy environment variables. See the [compatibility matrix](compatibility.md).
 - `upstream test` reports an unexpected country: the exit is the provider's choice. Check the username or port format in the provider's documentation. Geo-IP databases also misplace some addresses.

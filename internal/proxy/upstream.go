@@ -72,6 +72,7 @@ type DialError struct {
 	Status int
 	Msg    string
 	Err    error
+	Hint   string // what the user can do about it; set for own-proxy credential failures
 }
 
 func (e *DialError) Error() string {
@@ -119,6 +120,16 @@ func Cause(err error) string {
 	default:
 		return netCause(de.Err)
 	}
+}
+
+// Explain is Cause followed by the hint attached to the error, if any.
+func Explain(err error) string {
+	cause := Cause(err)
+	var de *DialError
+	if errors.As(err, &de) && de.Hint != "" {
+		return cause + ". " + de.Hint
+	}
+	return cause
 }
 
 // netCause names the network reason behind a dial failure.
