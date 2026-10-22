@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/shellroute/shellroute-cli/internal/proxy"
 )
 
 // exitAsChild and exitFromSignal end the process, so each case runs in a
@@ -57,6 +59,16 @@ func TestHelperProcess(t *testing.T) {
 			os.Exit(98)
 		}
 		os.Exit(0)
+	case "run-own-url":
+		// `shellroute run --proxy <url> -- sh -c 'exit 0'` through a fake proxy the
+		// parent test started; the exit IP probe goes to the parent's echo server.
+		proxy.ExitInfoEndpoints = []string{os.Getenv("SR_TEST_EXIT_IP_URL")}
+		rootCmd.SetArgs([]string{"run", "--proxy", os.Getenv("SR_TEST_PROXY_URL"), "--no-stat",
+			"--", "sh", "-c", "exit 0"})
+		if err := rootCmd.Execute(); err != nil {
+			fmt.Println(err)
+			os.Exit(98)
+		}
 	case "run-own-env":
 		// SHELLROUTE_PROXY selects the route; the command must not see it.
 		rootCmd.SetArgs([]string{"run", "--no-check", "--no-stat",

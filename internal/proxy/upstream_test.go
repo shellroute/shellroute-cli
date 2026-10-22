@@ -425,7 +425,8 @@ func TestParseUpstreamURL(t *testing.T) {
 		{"http://:8080", "", "needs a host"},
 		{"http://proxy.example:8080/path", "", "must not have a path"},
 		{"http://proxy.example:8080?x=1", "", "must not have a path"},
-		{"http://user:pa ss@host:1", "", "not valid"},
+		{"http://user:pa ss@host:1", "*proxy.HTTPUpstream", ""},
+		{"http://host:1 x", "", "not valid"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.raw, func(t *testing.T) {
@@ -446,8 +447,8 @@ func TestParseUpstreamURL(t *testing.T) {
 	}
 }
 
-func TestParseUpstreamURL_DecodesCredentialsAndRedactsLabel(t *testing.T) {
-	up, err := ParseUpstreamURL("http://al%40ice:p%3Ass@proxy.example:8080")
+func TestParseSavedUpstreamURL_LegacyDecodesCredentialsAndRedactsLabel(t *testing.T) {
+	up, err := ParseSavedUpstreamURL("http://al%40ice:p%3Ass@proxy.example:8080", false)
 	if err != nil {
 		t.Fatal(err)
 	}

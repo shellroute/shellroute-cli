@@ -76,7 +76,11 @@ func resolveRunTarget(cfg *config.Config, args []string, dashIdx int, proxyFlag,
 
 	if proxyFlag != "" {
 		if first != "" {
-			return runTarget{}, nil, errors.New("--proxy cannot be combined with a country or upstream name")
+			if _, saved := cfg.FindUpstream(first); isCountryWord(first) || saved {
+				return runTarget{}, nil, errors.New("--proxy cannot be combined with a country or upstream name")
+			}
+			// Any other word before -- is the tail of a URL the shell split.
+			return runTarget{}, nil, fmt.Errorf("--proxy: %v", proxy.ErrURLFormat)
 		}
 		up, err := proxy.ParseUpstreamURL(proxyFlag)
 		if err != nil {
@@ -100,7 +104,7 @@ func resolveRunTarget(cfg *config.Config, args []string, dashIdx int, proxyFlag,
 		if !ok {
 			return runTarget{}, nil, fmt.Errorf("unknown upstream %q. Save it with `shellroute upstream add %s <url>` or list saved ones with `shellroute upstream list`", first, first)
 		}
-		up, err := proxy.ParseUpstreamURL(entry.URL)
+		up, err := proxy.ParseSavedUpstreamURL(entry.URL, entry.Literal)
 		if err != nil {
 			return runTarget{}, nil, fmt.Errorf("saved upstream %q has an invalid URL (%v). Remove it and add it again", first, err)
 		}
@@ -128,7 +132,7 @@ func resolveUpstreamRef(cfg *config.Config, ref string) (runTarget, error) {
 		return runTarget{}, errors.New("upstream required")
 	}
 	if entry, ok := cfg.FindUpstream(ref); ok {
-		up, err := proxy.ParseUpstreamURL(entry.URL)
+		up, err := proxy.ParseSavedUpstreamURL(entry.URL, entry.Literal)
 		if err != nil {
 			return runTarget{}, fmt.Errorf("saved upstream %q has an invalid URL (%v). Remove it and add it again", ref, err)
 		}
@@ -188,7 +192,7 @@ func viaLine(sess *session.Session) string {
 // reportOwnStartError explains why the user's own proxy could not be used.
 func reportOwnStartError(t runTarget, err error) error {
 	if proxy.TunnelFailed(err) {
-		display.Error("Cannot connect through %s: %s", t.describe(), proxy.Cause(err))
+		display.Error("Cannot connect through %s: %s", t.describe(), proxy.Explain(err))
 	} else {
 		display.Error("Cannot start the local proxy. Try again.")
 	}

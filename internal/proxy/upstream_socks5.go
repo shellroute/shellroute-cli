@@ -29,6 +29,7 @@ type SOCKS5Upstream struct {
 	username string
 	password string
 	label    string
+	credHint string // attached to a credentials rejection; set by ParseUpstreamURL
 }
 
 // NewSOCKS5Upstream returns an upstream for a SOCKS5 proxy. label is shown in
@@ -86,7 +87,7 @@ func (u *SOCKS5Upstream) handshake(conn net.Conn, host string, port int) error {
 	case socksNoAuth:
 	case socksUserPass:
 		if !wantAuth {
-			return &DialError{Kind: KindCredentials, Msg: "proxy requires a username and password"}
+			return &DialError{Kind: KindCredentials, Msg: "proxy requires a username and password", Hint: u.credHint}
 		}
 		if err := u.authenticate(conn); err != nil {
 			return err
@@ -95,7 +96,7 @@ func (u *SOCKS5Upstream) handshake(conn net.Conn, host string, port int) error {
 		if wantAuth {
 			return &DialError{Kind: KindHandshake, Msg: "proxy accepts neither anonymous nor username/password authentication"}
 		}
-		return &DialError{Kind: KindCredentials, Msg: "proxy requires a username and password"}
+		return &DialError{Kind: KindCredentials, Msg: "proxy requires a username and password", Hint: u.credHint}
 	default:
 		return &DialError{Kind: KindHandshake, Msg: fmt.Sprintf("proxy chose unsupported authentication method %d", reply[1])}
 	}
@@ -177,7 +178,7 @@ func (u *SOCKS5Upstream) authenticate(conn net.Conn) error {
 		return handshakeError("proxy did not answer the authentication request", err)
 	}
 	if reply[1] != 0x00 {
-		return &DialError{Kind: KindCredentials, Status: int(reply[1])}
+		return &DialError{Kind: KindCredentials, Status: int(reply[1]), Hint: u.credHint}
 	}
 	return nil
 }
