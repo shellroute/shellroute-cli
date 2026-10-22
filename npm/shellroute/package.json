@@ -1,7 +1,7 @@
 {
   "name": "shellroute",
   "version": "0.0.0",
-  "description": "Choose a country or city and route a shell session or a single command through a proxy. Your other apps and terminals keep their normal connection.",
+  "description": "Run your command from another country. Per-command proxy routing with your own proxy or Shellroute's routes.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

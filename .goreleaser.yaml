@@ -67,7 +67,7 @@ brews:
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: "https://shellroute.com"
-    description: "Run terminal commands through a proxy."
+    description: "Run your command from another country. Per-command proxy routing with your own proxy or Shellroute's routes."
     directory: Formula
 
 signs:
