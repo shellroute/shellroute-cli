@@ -1,12 +1,10 @@
-# shellroute CLI
+# Shellroute CLI
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-**Run terminal commands through a proxy.**
+**Run your command from another country.**
 
-Choose a country or city and route a shell session or a single command through a proxy. Your other apps and terminals keep their normal connection. Learn more at [shellroute.com](https://shellroute.com/).
-
-Need to reproduce country-specific behavior? Run the same command through another country while the rest of your machine keeps its normal connection.
+See what your site and API do for a visitor in Germany, the US or Japan. Shellroute runs one command or one shell through a proxy in that country; the rest of your machine stays on its normal connection. Works with any HTTP or SOCKS5 proxy you already have, or with Shellroute's built-in routes. Learn more at [shellroute.com](https://shellroute.com/).
 
 ## Install
 
@@ -30,24 +28,21 @@ Or download binaries from [GitHub Releases](https://github.com/shellroute/shellr
 
 Supports macOS and Linux.
 
-## Quick start
+## Quick start with your own proxy
 
 ```bash
-# Log in. A new account is created automatically.
-shellroute login
-
-# Shellroute opens after login. Run these inside it:
-/connect US
-curl https://ipinfo.io/json
+shellroute upstream add your-proxy-name http://USER:PASSWORD@HOST:PORT
+shellroute run your-proxy-name -- curl https://ipinfo.io/json
 ```
 
-### Or route one command
+## Quick start with Shellroute's routes
 
 ```bash
+shellroute login
 shellroute run DE -- curl https://ipinfo.io/json
 ```
 
-[Read the full quickstart](https://shellroute.com/docs/quickstart?utm_source=github&utm_medium=readme&utm_campaign=exp_ghconv_01).
+Start with $1 of credit, no card needed. [Read the full quickstart](https://shellroute.com/docs/quickstart?utm_source=github&utm_medium=readme&utm_campaign=exp_ghconv_01).
 
 ## Commands
 
