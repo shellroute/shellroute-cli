@@ -129,7 +129,7 @@ All info commands support `--format json`.
 git clone https://github.com/shellroute/shellroute-cli.git
 cd shellroute-cli
 ./scripts/rebuild-cli.sh
-./shellroute version
+./shellroute --version
 ```
 
 Run all checks (lint, tests, audit, cross-compile): `./scripts/run-tests.sh`. Requires Go 1.22+.
