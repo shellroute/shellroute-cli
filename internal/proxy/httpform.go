@@ -70,3 +70,37 @@ func originForm(data []byte) (hostPort string, out []byte, err error) {
 	out = append([]byte(b.String()), body...)
 	return host, out, nil
 }
+
+// closeAfterResponse asks the target to close the connection after its
+// response. A tunnel through the hosted gateway reaches one target, but a
+// client may reuse its connection to the local proxy for a plain HTTP request
+// to another host. Once the target closes, the client opens a new connection,
+// and so a new tunnel, for its next request. An upgrade request (a WebSocket,
+// for example) is left as it is: the upgraded connection stays with one target.
+func closeAfterResponse(req []byte) []byte {
+	headEnd := bytes.Index(req, []byte("\r\n\r\n"))
+	if headEnd == -1 {
+		return req
+	}
+	lines := strings.Split(string(req[:headEnd]), "\r\n")
+
+	var b strings.Builder
+	b.WriteString(lines[0] + "\r\n")
+	for _, l := range lines[1:] {
+		name, value, _ := strings.Cut(l, ":")
+		switch strings.ToLower(strings.TrimSpace(name)) {
+		case "connection":
+			for _, token := range strings.Split(value, ",") {
+				if strings.EqualFold(strings.TrimSpace(token), "upgrade") {
+					return req
+				}
+			}
+			continue
+		case "keep-alive":
+			continue
+		}
+		b.WriteString(l + "\r\n")
+	}
+	b.WriteString("Connection: close\r\n\r\n")
+	return append([]byte(b.String()), req[headEnd+4:]...)
+}

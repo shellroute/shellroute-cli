@@ -433,7 +433,8 @@ func (s *Server) handleHTTP(ctx context.Context, clientConn net.Conn, initialDat
 
 	var upstreamConn net.Conn
 	var req []byte
-	if hp, ok := up.(HTTPProxyUpstream); ok {
+	hp, isHTTPProxy := up.(HTTPProxyUpstream)
+	if isHTTPProxy && hp.ForwardsPlainHTTP() {
 		conn, err := hp.DialProxy(ctx)
 		if err != nil {
 			s.handleDialError(clientConn, err)
@@ -449,10 +450,16 @@ func (s *Server) handleHTTP(ctx context.Context, clientConn net.Conn, initialDat
 			req = []byte(text)
 		}
 	} else {
+		// SOCKS5, or the hosted gateway, which accepts only CONNECT: open a
+		// tunnel to the target and send the request in origin form.
 		target, origin, err := originForm(initialData)
 		if err != nil {
 			clientConn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n"))
 			return
+		}
+		if isHTTPProxy {
+			// The hosted gateway: one request per tunnel.
+			origin = closeAfterResponse(origin)
 		}
 		conn, err := up.DialTarget(ctx, target)
 		if err != nil {
