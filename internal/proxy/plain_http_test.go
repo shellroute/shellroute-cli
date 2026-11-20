@@ -7,10 +7,12 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 
 	"github.com/shellroute/shellroute-cli/internal/meter"
+	"github.com/shellroute/shellroute-cli/internal/proxy/proxytest"
 )
 
 // tunnelRequest is a request the fake gateway received inside a tunnel.
@@ -178,6 +180,36 @@ func TestServer_HostedPlainHTTPToTwoHostsUsesTwoTunnels(t *testing.T) {
 	defer g.mu.Unlock()
 	if len(g.connects) != 2 {
 		t.Errorf("CONNECTs = %v, want one per host", g.connects)
+	}
+}
+
+// A user's own SOCKS5 proxy also tunnels, so the same holds there.
+func TestServer_SOCKS5PlainHTTPToTwoHostsUsesTwoTunnels(t *testing.T) {
+	var urls []string
+	for _, name := range []string{"a", "b"} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			io.WriteString(w, name)
+		}))
+		t.Cleanup(srv.Close)
+		urls = append(urls, srv.URL)
+	}
+	sp := proxytest.StartSOCKS5(t, "", "")
+	s := NewServer(&Config{
+		ListenPort:       freePort(t),
+		Upstream:         NewSOCKS5Upstream(sp.Addr, "", "", "socks5"),
+		Meter:            meter.New(),
+		FailureThreshold: OwnFailureThreshold,
+	})
+	addr := startServer(t, s)
+	client := viaLocalProxy(t, addr, nil)
+
+	for i, want := range []string{"a", "b"} {
+		if _, body := getBody(t, client, urls[i]+"/"); body != want {
+			t.Errorf("request for server %s was answered by server %q", want, body)
+		}
+	}
+	if n := sp.Connects.Load(); n != 2 {
+		t.Errorf("SOCKS5 connects = %d, want one per request", n)
 	}
 }
 

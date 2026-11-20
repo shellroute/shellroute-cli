@@ -72,11 +72,12 @@ func originForm(data []byte) (hostPort string, out []byte, err error) {
 }
 
 // closeAfterResponse asks the target to close the connection after its
-// response. A tunnel through the hosted gateway reaches one target, but a
-// client may reuse its connection to the local proxy for a plain HTTP request
-// to another host. Once the target closes, the client opens a new connection,
-// and so a new tunnel, for its next request. An upgrade request (a WebSocket,
-// for example) is left as it is: the upgraded connection stays with one target.
+// response. A tunnel through a SOCKS5 proxy or the hosted gateway reaches one
+// target, but a client may reuse its connection to the local proxy for a
+// plain HTTP request to another host. Once the target closes, the client
+// opens a new connection, and so a new tunnel, for its next request. An
+// upgrade request (a WebSocket, for example) is left as it is: the upgraded
+// connection stays with one target.
 func closeAfterResponse(req []byte) []byte {
 	headEnd := bytes.Index(req, []byte("\r\n\r\n"))
 	if headEnd == -1 {
