@@ -24,7 +24,7 @@ type Upstream interface {
 }
 
 // HTTPProxyUpstream is implemented by upstreams that are HTTP proxies
-// themselves and can take a plain HTTP request in absolute form directly.
+// themselves.
 type HTTPProxyUpstream interface {
 	Upstream
 	// DialProxy opens a raw connection to the proxy itself.
@@ -32,6 +32,10 @@ type HTTPProxyUpstream interface {
 	// ProxyAuthorization returns the Proxy-Authorization header value, or ""
 	// when the proxy takes no credentials.
 	ProxyAuthorization() string
+	// ForwardsPlainHTTP reports whether the proxy takes a plain HTTP request
+	// in absolute form directly. The hosted gateway accepts only CONNECT, so
+	// a plain HTTP request goes through a tunnel to its target instead.
+	ForwardsPlainHTTP() bool
 }
 
 // OwnFailureThreshold is how many consecutive upstream failures mark a

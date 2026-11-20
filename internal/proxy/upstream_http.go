@@ -60,6 +60,10 @@ func (u *HTTPUpstream) ProxyAuthorization() string {
 	return "Basic " + u.auth
 }
 
+// ForwardsPlainHTTP is true for a user's own HTTP or HTTPS proxy and false
+// for the hosted gateway, which accepts only CONNECT.
+func (u *HTTPUpstream) ForwardsPlainHTTP() bool { return !u.hosted }
+
 func (u *HTTPUpstream) setExitIPCallback(f func(string)) { u.onExitIP = f }
 
 // setTLSConfig overrides TLS verification; used by tests with a private CA.

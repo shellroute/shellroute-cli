@@ -89,7 +89,7 @@ type Info struct {
 type StartOpts struct {
 	TrackRelays    bool          // true for run mode — enables force-close of active relay conns
 	ConnectTimeout time.Duration // override exit IP detection timeout (default 45s)
-	Mode           string        // "proxy", "run", or "" (interactive)
+	Mode           string        // "proxy", "run", or "" (interactive); hosted proxy and run sessions send their own keep-alive
 	SkipExitIP     bool          // own routes: do not probe the exit IP
 }
 
@@ -182,6 +182,13 @@ func startWithResponse(ctx context.Context, client *api.Client, resp *api.Sessio
 			s.removeInfoFile()
 		}
 	}()
+
+	// The interactive shell keeps its session alive from the controller's
+	// balance monitor. proxy and run mode have no controller, so the session
+	// sends the keep-alive itself until Stop.
+	if opts.Mode != "" {
+		go keepAlive(ctx, client, s.ID, s.Type, keepAliveInterval)
+	}
 
 	// Wait for the tunnel to be ready.
 	// If the API already returned an exit IP (gateway had a pool entry), skip

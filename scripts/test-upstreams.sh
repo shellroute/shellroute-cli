@@ -95,13 +95,25 @@ fi
 # A second marker runs on the host for the NO_PROXY check: reached directly it
 # sees the host's own address; reached through a proxy container it does not.
 HOST_MARK_PORT=$(free_port)
-python3 scripts/upstreams/marker.py "$HOST_MARK_PORT" & PIDS+=($!)
+python3 scripts/upstreams/marker.py "$HOST_MARK_PORT" 2>"$TMP/host-marker.log" & PIDS+=($!)
 LAN_IP=$(python3 -c 'import socket
 s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 try:
     s.connect(("10.255.255.255", 1)); print(s.getsockname()[0])
 except Exception: print("")')
 case "$LAN_IP" in 127.*|"") LAN_IP="";; esac
+# C-06 needs the host marker to answer on the LAN address. On macOS the
+# firewall can block incoming connections for a python3 build, which breaks
+# the direct request with no proxy or shellroute involved: skip C-06 there and
+# say why. CI has no such firewall, so the check stays strict there.
+if [ -n "$LAN_IP" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
+  wait_port "$HOST_MARK_PORT" || true
+  direct=$(curl -s --noproxy '*' --max-time 5 "http://$LAN_IP:$HOST_MARK_PORT/direct" | json_field source)
+  if [ "$direct" != "$LAN_IP" ]; then
+    C06_SKIP="the host marker does not answer on the LAN address even directly; the firewall likely blocks incoming connections for $(command -v python3)"
+    LAN_IP=""
+  fi
+fi
 
 # --- proxies ---
 say "== start proxies =="
@@ -273,7 +285,7 @@ run_checks() {
 }
 
 say "== checks =="
-[ -n "$LAN_IP" ] || say "  no LAN address found: C-06 is skipped"
+[ -n "$LAN_IP" ] || say "  C-06 is skipped: ${C06_SKIP:-no LAN address found}"
 run_checks "3proxy http+auth"    "http://alice:s3cret@127.0.0.1:$P3_HTTP" sr-3proxy
 run_checks "3proxy socks5+auth"  "socks5://alice:s3cret@127.0.0.1:$P3_SOCKS" sr-3proxy
 run_checks "3proxy socks5 open"  "socks5://127.0.0.1:$P3_SOCKS_OPEN" sr-3proxy
