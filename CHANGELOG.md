@@ -2,12 +2,20 @@
 
 Dates are the npm publish dates. The same notes are at https://shellroute.com/changelog.
 
-## v0.2.1
+## v0.2.2 (2026-11-20)
+
+Long-running sessions and plain HTTP.
+
+- A hosted session started with `shellroute proxy` or `shellroute run` ended a few minutes after it started, even while traffic was flowing. It now stays open as long as it runs, as interactive sessions always did.
+- Requests to `http://` addresses failed on hosted routes, and only `https://` got through. Both work now.
+- Through your own SOCKS5 proxy, when a program reused one connection for `http://` requests to two different sites, the second request went to the first site. Each plain HTTP request now gets its own connection.
+
+## v0.2.1 (2026-10-22)
 
 - Proxy credentials are taken exactly as written: a password with `/`, `#`, `?`, `%`, spaces or `@` no longer needs percent-encoding. Entries saved by 0.2.0 keep working.
 - When a proxy rejects the login, or the shell splits an unquoted URL, the error says what to do about it.
 
-## v0.2.0 (2026-10-21)
+## v0.2.0 (2026-10-22)
 
 Bring your own proxy. Route a command or the interactive shell through a proxy you already have, with no Shellroute account.
 
